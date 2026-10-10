@@ -4,7 +4,7 @@
 
 ## 你在哪个项目里
 
-工作目录 `/Users/arasaka/Documents/ict_code/AFD`(**不是 git 仓库**)。这是一个 **GPU + DIMM-PIM 异构 LLM 推理调度**的模拟器项目,研究问题是:
+工作目录 `/Users/arasaka/Documents/ict_code/AFD`（Git 仓库，远端 `git@github.com:Asprin2002/AFD.git`；`results/` 不纳入版本控制）。这是一个 **GPU + DIMM-PIM 异构 LLM 推理调度**的模拟器项目,研究问题是:
 
 > **把解码(decode)阶段里"Attention 放 PIM、稠密算子(QKV/O投影/FFN)放 GPU"的默认分工打破——允许未来-KV 写入侧切换和算子迁移——能否缩短 CHIME 式双子批交叠流水线里较长的那一阶段。目标是找出有效与无效的工作负载区域,而不是假定迁移总有益。**
 

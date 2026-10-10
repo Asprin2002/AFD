@@ -86,9 +86,10 @@ python3 -m pip install -e .
 python3 -m unittest discover -s tests -q
 ```
 
-The cleanup baseline on 2026-09-22 was 131 passing tests. The workspace is not
-a Git repository, so result metadata hashes and explicit checkpoints are the
-only version record.
+The cleanup baseline on 2026-09-22 was 131 passing tests. On 2026-10-11,
+the full suite passed 168 tests. Source files are tracked in the GitHub
+repository `Asprin2002/AFD`; generated `results/` remain ignored by Git.
+Result metadata hashes and explicit checkpoints identify experiment outputs.
 
 ## Interpretation rules
 
