@@ -1,0 +1,25 @@
+{
+  "source_url": "https://raw.githubusercontent.com/HPMLL/BurstGPT/main/data/BurstGPT_1.csv",
+  "source_sha256": "46fc9480ef0b748ecb2b51d512ff08c196b031782cbe6f78e28044d768e86d5a",
+  "source_rows": 1429737,
+  "source_positive_rows": 1404294,
+  "source_failed_or_zero_rows": 25443,
+  "selection": "central consecutive positive-token requests within an hour",
+  "length_filter": "none beyond positive input/output tokens",
+  "hour_rate_quantile": 0.1,
+  "source_hour_index": 144,
+  "source_hour_positive_rows": 67,
+  "source_row_range": [
+    16089,
+    16121
+  ],
+  "request_count": 32,
+  "native_time_span_s": 933.0,
+  "time_rescaled": false,
+  "source_model_counts": {
+    "ChatGPT": 19,
+    "GPT-4": 13
+  },
+  "mean_input_tokens": 649.875,
+  "mean_output_tokens": 143.21875
+}

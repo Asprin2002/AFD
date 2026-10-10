@@ -1,0 +1,14 @@
+{
+  "trace_sha256": "65052d72f08ba9b86bca29734d5119b275c9a08a3b31b32bbeadbda020009d00",
+  "generator_sha256": "898a914b76ac60f2f58827c83970697dfe651c5d58b0891a72680f533dd14fae",
+  "profile": "anchor",
+  "seed": null,
+  "batch_size": 32,
+  "capacity_preflight": true,
+  "request_count": 32,
+  "total_output_tokens": 262144,
+  "total_input_tokens": 65536,
+  "mean_input_tokens": 2048.0,
+  "mean_output_tokens": 8192.0,
+  "note": "trusted-grid homogeneous anchor"
+}

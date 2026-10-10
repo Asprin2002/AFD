@@ -1,0 +1,14 @@
+{
+  "trace_sha256": "ddfbc8ee9e0af8c6c43c5d36e021e6f9eccaac08168b0bb1df2e14a4a28dc8be",
+  "generator_sha256": "898a914b76ac60f2f58827c83970697dfe651c5d58b0891a72680f533dd14fae",
+  "profile": "mixed",
+  "seed": 20260922,
+  "batch_size": 16,
+  "capacity_preflight": true,
+  "request_count": 16,
+  "total_output_tokens": 16512,
+  "total_input_tokens": 54559,
+  "mean_input_tokens": 3409.9375,
+  "mean_output_tokens": 1032.0,
+  "note": "deterministic mixed recipe, seed 20260922"
+}

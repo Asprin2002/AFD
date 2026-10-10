@@ -1,0 +1,21 @@
+{
+  "basis_capacity_tok_s": 110.0,
+  "basis_fraction": 0.7,
+  "native_offered_tok_s": 4491.162542519843,
+  "native_time_span_s": 89.958,
+  "note": "same user population replayed at the pace of a single-replica device; relative inter-arrival and token-length structure kept",
+  "realized_offered_tok_s": 77.0,
+  "request_count": 512,
+  "semantics": {
+    "prefill": "already completed; every arrival is decode-ready",
+    "request_set": "complete source request set, order unchanged",
+    "timestamp_transform": "affine scale after subtracting first timestamp",
+    "token_lengths_modified": false
+  },
+  "source": "/Users/arasaka/Documents/ict_code/AFD/workloads/public/long_service_candidates/qwen-coder-capacity-512.csv",
+  "source_sha256": "75d4053924ad49443e6918b8ce068b4f9b200d992e6fafe1a28a620d5558b6f4",
+  "target_offered_tok_s": 77.0,
+  "time_scale": 58.32678626649146,
+  "total_output_tokens": 404016,
+  "trace_sha256": "48f1daea583aa520dcace2ae3e0a2a7b1b85b53e7f88e37b1ee2abddf3dab260"
+}

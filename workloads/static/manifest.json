@@ -1,0 +1,388 @@
+{
+  "batches": [
+    8,
+    16,
+    32
+  ],
+  "decision_stride": 64,
+  "files": {
+    "anchor_b16_i128_o256": {
+      "batch": 16,
+      "capacity_preflight": true,
+      "input_tokens": 128,
+      "kind": "anchor",
+      "output_tokens": 256,
+      "path": "homogeneous/anchor_b16_i128_o256.csv"
+    },
+    "anchor_b16_i2048_o1024": {
+      "batch": 16,
+      "capacity_preflight": true,
+      "input_tokens": 2048,
+      "kind": "anchor",
+      "output_tokens": 1024,
+      "path": "homogeneous/anchor_b16_i2048_o1024.csv"
+    },
+    "anchor_b16_i2048_o256": {
+      "batch": 16,
+      "capacity_preflight": true,
+      "input_tokens": 2048,
+      "kind": "anchor",
+      "output_tokens": 256,
+      "path": "homogeneous/anchor_b16_i2048_o256.csv"
+    },
+    "anchor_b16_i5200_o4096": {
+      "batch": 16,
+      "capacity_preflight": true,
+      "input_tokens": 5200,
+      "kind": "anchor",
+      "output_tokens": 4096,
+      "path": "homogeneous/anchor_b16_i5200_o4096.csv"
+    },
+    "anchor_b16_i5200_o8192": {
+      "batch": 16,
+      "capacity_preflight": true,
+      "input_tokens": 5200,
+      "kind": "anchor",
+      "output_tokens": 8192,
+      "path": "homogeneous/anchor_b16_i5200_o8192.csv"
+    },
+    "anchor_b2_i128_o256": {
+      "batch": 2,
+      "capacity_preflight": true,
+      "input_tokens": 128,
+      "kind": "anchor",
+      "output_tokens": 256,
+      "path": "homogeneous/anchor_b2_i128_o256.csv"
+    },
+    "anchor_b2_i128_o4096": {
+      "batch": 2,
+      "capacity_preflight": true,
+      "input_tokens": 128,
+      "kind": "anchor",
+      "output_tokens": 4096,
+      "path": "homogeneous/anchor_b2_i128_o4096.csv"
+    },
+    "anchor_b32_i2048_o1024": {
+      "batch": 32,
+      "capacity_preflight": true,
+      "input_tokens": 2048,
+      "kind": "anchor",
+      "output_tokens": 1024,
+      "path": "homogeneous/anchor_b32_i2048_o1024.csv"
+    },
+    "anchor_b32_i2048_o4096": {
+      "batch": 32,
+      "capacity_preflight": true,
+      "input_tokens": 2048,
+      "kind": "anchor",
+      "output_tokens": 4096,
+      "path": "homogeneous/anchor_b32_i2048_o4096.csv"
+    },
+    "anchor_b32_i2048_o8192": {
+      "batch": 32,
+      "capacity_preflight": true,
+      "input_tokens": 2048,
+      "kind": "anchor",
+      "output_tokens": 8192,
+      "path": "homogeneous/anchor_b32_i2048_o8192.csv"
+    },
+    "anchor_b32_i5200_o4096": {
+      "batch": 32,
+      "capacity_preflight": true,
+      "input_tokens": 5200,
+      "kind": "anchor",
+      "output_tokens": 4096,
+      "path": "homogeneous/anchor_b32_i5200_o4096.csv"
+    },
+    "anchor_b4_i2048_o1024": {
+      "batch": 4,
+      "capacity_preflight": true,
+      "input_tokens": 2048,
+      "kind": "anchor",
+      "output_tokens": 1024,
+      "path": "homogeneous/anchor_b4_i2048_o1024.csv"
+    },
+    "anchor_b4_i2048_o8192": {
+      "batch": 4,
+      "capacity_preflight": true,
+      "input_tokens": 2048,
+      "kind": "anchor",
+      "output_tokens": 8192,
+      "path": "homogeneous/anchor_b4_i2048_o8192.csv"
+    },
+    "anchor_b4_i5200_o4096": {
+      "batch": 4,
+      "capacity_preflight": true,
+      "input_tokens": 5200,
+      "kind": "anchor",
+      "output_tokens": 4096,
+      "path": "homogeneous/anchor_b4_i5200_o4096.csv"
+    },
+    "anchor_b8_i2048_o1024": {
+      "batch": 8,
+      "capacity_preflight": true,
+      "input_tokens": 2048,
+      "kind": "anchor",
+      "output_tokens": 1024,
+      "path": "homogeneous/anchor_b8_i2048_o1024.csv"
+    },
+    "anchor_b8_i5200_o4096": {
+      "batch": 8,
+      "capacity_preflight": true,
+      "input_tokens": 5200,
+      "kind": "anchor",
+      "output_tokens": 4096,
+      "path": "homogeneous/anchor_b8_i5200_o4096.csv"
+    },
+    "anchor_b8_i8192_o8192": {
+      "batch": 8,
+      "capacity_preflight": true,
+      "input_tokens": 8192,
+      "kind": "anchor",
+      "output_tokens": 8192,
+      "path": "homogeneous/anchor_b8_i8192_o8192.csv"
+    },
+    "long_in_b16_s20260922": {
+      "batch": 16,
+      "capacity_preflight": true,
+      "kind": "heterogeneous",
+      "path": "heterogeneous/long_in/b16_s20260922.csv",
+      "profile": "long_in",
+      "seed": 20260922
+    },
+    "long_in_b16_s20260923": {
+      "batch": 16,
+      "capacity_preflight": true,
+      "kind": "heterogeneous",
+      "path": "heterogeneous/long_in/b16_s20260923.csv",
+      "profile": "long_in",
+      "seed": 20260923
+    },
+    "long_in_b32_s20260922": {
+      "batch": 32,
+      "capacity_preflight": true,
+      "kind": "heterogeneous",
+      "path": "heterogeneous/long_in/b32_s20260922.csv",
+      "profile": "long_in",
+      "seed": 20260922
+    },
+    "long_in_b32_s20260923": {
+      "batch": 32,
+      "capacity_preflight": true,
+      "kind": "heterogeneous",
+      "path": "heterogeneous/long_in/b32_s20260923.csv",
+      "profile": "long_in",
+      "seed": 20260923
+    },
+    "long_in_b8_s20260922": {
+      "batch": 8,
+      "capacity_preflight": true,
+      "kind": "heterogeneous",
+      "path": "heterogeneous/long_in/b8_s20260922.csv",
+      "profile": "long_in",
+      "seed": 20260922
+    },
+    "long_in_b8_s20260923": {
+      "batch": 8,
+      "capacity_preflight": true,
+      "kind": "heterogeneous",
+      "path": "heterogeneous/long_in/b8_s20260923.csv",
+      "profile": "long_in",
+      "seed": 20260923
+    },
+    "long_out_b16_s20260922": {
+      "batch": 16,
+      "capacity_preflight": true,
+      "kind": "heterogeneous",
+      "path": "heterogeneous/long_out/b16_s20260922.csv",
+      "profile": "long_out",
+      "seed": 20260922
+    },
+    "long_out_b16_s20260923": {
+      "batch": 16,
+      "capacity_preflight": true,
+      "kind": "heterogeneous",
+      "path": "heterogeneous/long_out/b16_s20260923.csv",
+      "profile": "long_out",
+      "seed": 20260923
+    },
+    "long_out_b32_s20260922": {
+      "batch": 32,
+      "capacity_preflight": true,
+      "kind": "heterogeneous",
+      "path": "heterogeneous/long_out/b32_s20260922.csv",
+      "profile": "long_out",
+      "seed": 20260922
+    },
+    "long_out_b32_s20260923": {
+      "batch": 32,
+      "capacity_preflight": true,
+      "kind": "heterogeneous",
+      "path": "heterogeneous/long_out/b32_s20260923.csv",
+      "profile": "long_out",
+      "seed": 20260923
+    },
+    "long_out_b8_s20260922": {
+      "batch": 8,
+      "capacity_preflight": true,
+      "kind": "heterogeneous",
+      "path": "heterogeneous/long_out/b8_s20260922.csv",
+      "profile": "long_out",
+      "seed": 20260922
+    },
+    "long_out_b8_s20260923": {
+      "batch": 8,
+      "capacity_preflight": true,
+      "kind": "heterogeneous",
+      "path": "heterogeneous/long_out/b8_s20260923.csv",
+      "profile": "long_out",
+      "seed": 20260923
+    },
+    "mixed_b16_s20260922": {
+      "batch": 16,
+      "capacity_preflight": true,
+      "kind": "heterogeneous",
+      "path": "heterogeneous/mixed/b16_s20260922.csv",
+      "profile": "mixed",
+      "seed": 20260922
+    },
+    "mixed_b16_s20260923": {
+      "batch": 16,
+      "capacity_preflight": true,
+      "kind": "heterogeneous",
+      "path": "heterogeneous/mixed/b16_s20260923.csv",
+      "profile": "mixed",
+      "seed": 20260923
+    },
+    "mixed_b32_s20260922": {
+      "batch": 32,
+      "capacity_preflight": true,
+      "kind": "heterogeneous",
+      "path": "heterogeneous/mixed/b32_s20260922.csv",
+      "profile": "mixed",
+      "seed": 20260922
+    },
+    "mixed_b32_s20260923": {
+      "batch": 32,
+      "capacity_preflight": true,
+      "kind": "heterogeneous",
+      "path": "heterogeneous/mixed/b32_s20260923.csv",
+      "profile": "mixed",
+      "seed": 20260923
+    },
+    "mixed_b8_s20260922": {
+      "batch": 8,
+      "capacity_preflight": true,
+      "kind": "heterogeneous",
+      "path": "heterogeneous/mixed/b8_s20260922.csv",
+      "profile": "mixed",
+      "seed": 20260922
+    },
+    "mixed_b8_s20260923": {
+      "batch": 8,
+      "capacity_preflight": true,
+      "kind": "heterogeneous",
+      "path": "heterogeneous/mixed/b8_s20260923.csv",
+      "profile": "mixed",
+      "seed": 20260923
+    }
+  },
+  "generator_sha256": "898a914b76ac60f2f58827c83970697dfe651c5d58b0891a72680f533dd14fae",
+  "homogeneous_anchors": [
+    [
+      2,
+      128,
+      256
+    ],
+    [
+      2,
+      128,
+      4096
+    ],
+    [
+      4,
+      2048,
+      1024
+    ],
+    [
+      4,
+      5200,
+      4096
+    ],
+    [
+      4,
+      2048,
+      8192
+    ],
+    [
+      8,
+      8192,
+      8192
+    ],
+    [
+      8,
+      2048,
+      1024
+    ],
+    [
+      8,
+      5200,
+      4096
+    ],
+    [
+      16,
+      128,
+      256
+    ],
+    [
+      16,
+      2048,
+      256
+    ],
+    [
+      16,
+      2048,
+      1024
+    ],
+    [
+      16,
+      5200,
+      4096
+    ],
+    [
+      16,
+      5200,
+      8192
+    ],
+    [
+      32,
+      2048,
+      1024
+    ],
+    [
+      32,
+      2048,
+      4096
+    ],
+    [
+      32,
+      2048,
+      8192
+    ],
+    [
+      32,
+      5200,
+      4096
+    ]
+  ],
+  "profiles": [
+    "long_in",
+    "long_out",
+    "mixed"
+  ],
+  "schema_version": "static-recipe-v1",
+  "seeds": [
+    20260922,
+    20260923
+  ]
+}

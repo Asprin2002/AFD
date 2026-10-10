@@ -1,0 +1,38 @@
+model: gpt175b
+hardware:
+  preset: chime_a100
+  gpu:
+    runtime_reserve_gib: 64
+workload:
+  type: trace_serving
+  requests:
+    - request_id: short-output
+      arrival_ms: 0
+      input_tokens: 8192
+      output_tokens: 256
+    - request_id: long-output
+      arrival_ms: 0
+      input_tokens: 512
+      output_tokens: 8192
+    - request_id: later-request
+      arrival_ms: 50
+      input_tokens: 2048
+      output_tokens: 1024
+simulation:
+  max_batch_size: 3
+  fidelity: tile
+  pipeline_model: analytic
+  subbatch_scheduler: lpt
+  operator_mapping: chime
+  record_every: 64
+  allow_gpu_prompt_fallback: false
+  policy:
+    name: elastic
+    prediction: oracle
+    decision_interval: 64
+    planning_horizon_tokens: 256
+    min_segment_tokens: 128
+    min_switch_interval: 128
+    relative_improvement_threshold: 0.002
+    max_switches_per_decision: 3
+

@@ -1,0 +1,31 @@
+model: gpt175b
+hardware:
+  preset: chime_a100
+  gpu:
+    runtime_reserve_gib: 0
+    kv_capacity_limit_gib: 32
+workload:
+  type: static_batch
+  batch_size: 12
+  input_tokens: 6144
+  output_tokens: 1024
+simulation:
+  max_batch_size: 12
+  fidelity: tile
+  pipeline_model: analytic
+  subbatch_scheduler: lpt
+  operator_mapping: chime
+  record_every: 64
+  allow_gpu_prompt_fallback: false
+  policy:
+    name: elastic
+    optimizer: lifetime_greedy
+    prediction: oracle
+    decision_interval: 64
+    planning_horizon_tokens: 256
+    lifetime_evaluation_stride_tokens: 64
+    min_segment_tokens: 64
+    min_switch_interval: 64
+    relative_improvement_threshold: 0
+    max_switches_per_decision: 8
+

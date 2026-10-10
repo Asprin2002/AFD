@@ -1,0 +1,36 @@
+{
+  "source_name": "qwen-coder",
+  "source_url": "https://github.com/alibaba-edu/qwen-bailian-usagetraces-anon/blob/main/qwen_coder_blksz_16.jsonl",
+  "source_sha256": "3d74974cebb7bccb69b1ca6ea210a44d9a3033443c0271ed015327284dea1aff",
+  "trace_sha256": "6944848f0ceece6f6e9144970ae0db68c8c93553f851cff71f80209b2f7d9dbe",
+  "original_timestamp_unit": "seconds",
+  "selection": "central consecutive records by original row order",
+  "length_filter": "none; all source rows have positive lengths",
+  "time_rescaled": false,
+  "arrival_semantics_for_proposed_replay": "decode-ready; prefill not modeled",
+  "source_total_requests": 43011,
+  "source_line_first": 20994,
+  "source_line_last": 22017,
+  "request_count": 1024,
+  "native_time_span_s": 179.75599999999986,
+  "offered_rps": 5.691047864883513,
+  "input_tokens": {
+    "mean": 5338.8212890625,
+    "p50": 3834,
+    "p95": 13289,
+    "max": 19942
+  },
+  "output_tokens": {
+    "mean": 802.14453125,
+    "p50": 496,
+    "p95": 2377,
+    "max": 14603
+  },
+  "max_total_tokens_in_one_request": 28088,
+  "input_ge_4096_count": 492,
+  "output_ge_1024_count": 236,
+  "both_thresholds_count": 124,
+  "max_interarrival_s": 1.3910000000000764,
+  "occupied_10s_bins": 18,
+  "total_10s_bins": 18
+}

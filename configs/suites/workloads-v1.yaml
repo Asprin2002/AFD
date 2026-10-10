@@ -1,0 +1,936 @@
+version: 1
+name: workloads-v1
+description: >-
+  AFD Workloads v1. E0 establishes a decode-only CHIME baseline over offline
+  homogeneous, offline heterogeneous, workstation, and synthetic online
+  workloads. The screen tier uses the calibrated tile cost model with the
+  analytic pipeline; later stages replay selected cases with the event DAG.
+
+templates:
+  server_chime_screen:
+    model: gpt175b
+    hardware:
+      preset: chime_a100
+      gpu:
+        runtime_reserve_gib: 0
+    workload:
+      type: static_batch
+      batch_size: 1
+      input_tokens: 512
+      output_tokens: 128
+    simulation:
+      max_batch_size: 64
+      fidelity: tile
+      pipeline_model: analytic
+      subbatch_scheduler: lpt
+      operator_mapping: chime
+      record_every: 256
+      admission_scheduler: fcfs
+      allow_gpu_prompt_fallback: false
+      policy:
+        name: chime
+        prediction: oracle
+
+  workstation_64g_chime_screen:
+    model: opt6.7b
+    hardware:
+      preset: workstation_pim_64g
+    workload:
+      type: static_batch
+      batch_size: 1
+      input_tokens: 512
+      output_tokens: 128
+    simulation:
+      max_batch_size: 4
+      fidelity: tile
+      pipeline_model: analytic
+      subbatch_scheduler: lpt
+      operator_mapping: chime
+      record_every: 256
+      admission_scheduler: fcfs
+      allow_gpu_prompt_fallback: false
+      policy:
+        name: chime
+        prediction: oracle
+
+  online_chime_screen:
+    model: gpt175b
+    hardware:
+      preset: chime_a100
+      gpu:
+        runtime_reserve_gib: 0
+    workload:
+      type: trace_serving
+      synthetic:
+        count: 24
+        profile: dolphin_short
+        arrival_rate_rps: 1.0
+        seed: 0
+    simulation:
+      max_batch_size: 8
+      fidelity: tile
+      pipeline_model: analytic
+      subbatch_scheduler: lpt
+      operator_mapping: chime
+      record_every: 256
+      admission_scheduler: fcfs
+      allow_gpu_prompt_fallback: false
+      slo_queue_ms: 2000
+      slo_tpot_ms: 130
+      slo_attainment_target: 0.99
+      policy:
+        name: chime
+        prediction: oracle
+
+stages:
+  e0:
+    description: >-
+      Freeze Workloads-v1 and measure the unmodified CHIME decode baseline.
+      No elastic KV placement or dynamic AF scheduling is enabled in E0.
+    cases:
+      # Offline homogeneous server cases. Full tier contains all 39 points.
+      - id: off-homo-b1-i512-o128
+        tier: smoke
+        scenario: offline_homogeneous
+        template: server_chime_screen
+        description: Single-request short prompt and short decode.
+        tags: [server, single_request, short_context, short_output]
+        overrides: {workload: {batch_size: 1, input_tokens: 512, output_tokens: 128}}
+      - id: off-homo-b1-i512-o4096
+        tier: full
+        scenario: offline_homogeneous
+        template: server_chime_screen
+        description: Single-request short prompt and long decode.
+        tags: [server, single_request, short_context, long_output]
+        overrides: {workload: {batch_size: 1, input_tokens: 512, output_tokens: 4096}}
+      - id: off-homo-b1-i2048-o256
+        tier: full
+        scenario: offline_homogeneous
+        template: server_chime_screen
+        description: Single-request medium prompt and short decode.
+        tags: [server, single_request, medium_context, short_output]
+        overrides: {workload: {batch_size: 1, input_tokens: 2048, output_tokens: 256}}
+      - id: off-homo-b1-i2048-o4096
+        tier: core
+        scenario: offline_homogeneous
+        template: server_chime_screen
+        description: Single-request medium prompt and long decode.
+        tags: [server, single_request, medium_context, long_output]
+        overrides: {workload: {batch_size: 1, input_tokens: 2048, output_tokens: 4096}}
+      - id: off-homo-b1-i8192-o256
+        tier: core
+        scenario: offline_homogeneous
+        template: server_chime_screen
+        description: Single-request long prompt and short decode.
+        tags: [server, single_request, long_context, short_output]
+        overrides: {workload: {batch_size: 1, input_tokens: 8192, output_tokens: 256}}
+      - id: off-homo-b1-i8192-o4096
+        tier: full
+        scenario: offline_homogeneous
+        template: server_chime_screen
+        description: Single-request long prompt and long decode.
+        tags: [server, single_request, long_context, long_output]
+        overrides: {workload: {batch_size: 1, input_tokens: 8192, output_tokens: 4096}}
+      - id: off-homo-b1-i32768-o512
+        tier: full
+        scenario: offline_homogeneous
+        template: server_chime_screen
+        description: Single-request very long prompt and short decode.
+        tags: [server, single_request, very_long_context, short_output]
+        overrides: {workload: {batch_size: 1, input_tokens: 32768, output_tokens: 512}}
+      - id: off-homo-b1-i32768-o8192
+        tier: core
+        scenario: offline_homogeneous
+        template: server_chime_screen
+        description: Single-request very long prompt and long decode.
+        tags: [server, single_request, very_long_context, long_output]
+        overrides: {workload: {batch_size: 1, input_tokens: 32768, output_tokens: 8192}}
+      - id: off-homo-b1-i131072-o1024
+        tier: full
+        scenario: offline_homogeneous
+        template: server_chime_screen
+        description: Single-request 128K prompt and medium decode.
+        tags: [server, single_request, extreme_context, medium_output]
+        overrides: {workload: {batch_size: 1, input_tokens: 131072, output_tokens: 1024}}
+      - id: off-homo-b1-i131072-o16384
+        tier: full
+        scenario: offline_homogeneous
+        template: server_chime_screen
+        description: Single-request 128K prompt and very long decode.
+        tags: [server, single_request, extreme_context, very_long_output]
+        overrides: {workload: {batch_size: 1, input_tokens: 131072, output_tokens: 16384}}
+
+      - id: off-homo-b4-i512-o128
+        tier: full
+        scenario: offline_homogeneous
+        template: server_chime_screen
+        description: Small batch, short prompt and short decode.
+        tags: [server, small_batch, short_context, short_output]
+        overrides: {workload: {batch_size: 4, input_tokens: 512, output_tokens: 128}}
+      - id: off-homo-b4-i512-o4096
+        tier: core
+        scenario: offline_homogeneous
+        template: server_chime_screen
+        description: Small batch, short prompt and long decode.
+        tags: [server, small_batch, short_context, long_output]
+        overrides: {workload: {batch_size: 4, input_tokens: 512, output_tokens: 4096}}
+      - id: off-homo-b4-i2048-o256
+        tier: full
+        scenario: offline_homogeneous
+        template: server_chime_screen
+        description: Small batch, medium prompt and short decode.
+        tags: [server, small_batch, medium_context, short_output]
+        overrides: {workload: {batch_size: 4, input_tokens: 2048, output_tokens: 256}}
+      - id: off-homo-b4-i2048-o4096
+        tier: full
+        scenario: offline_homogeneous
+        template: server_chime_screen
+        description: Small batch, medium prompt and long decode.
+        tags: [server, small_batch, medium_context, long_output]
+        overrides: {workload: {batch_size: 4, input_tokens: 2048, output_tokens: 4096}}
+      - id: off-homo-b4-i8192-o256
+        tier: full
+        scenario: offline_homogeneous
+        template: server_chime_screen
+        description: Small batch, long prompt and short decode.
+        tags: [server, small_batch, long_context, short_output]
+        overrides: {workload: {batch_size: 4, input_tokens: 8192, output_tokens: 256}}
+      - id: off-homo-b4-i8192-o4096
+        tier: core
+        scenario: offline_homogeneous
+        template: server_chime_screen
+        description: Small batch, long prompt and long decode.
+        tags: [server, small_batch, long_context, long_output]
+        overrides: {workload: {batch_size: 4, input_tokens: 8192, output_tokens: 4096}}
+      - id: off-homo-b4-i32768-o512
+        tier: full
+        scenario: offline_homogeneous
+        template: server_chime_screen
+        description: Small batch, very long prompt and short decode.
+        tags: [server, small_batch, very_long_context, short_output]
+        overrides: {workload: {batch_size: 4, input_tokens: 32768, output_tokens: 512}}
+      - id: off-homo-b4-i32768-o8192
+        tier: full
+        scenario: offline_homogeneous
+        template: server_chime_screen
+        description: Small batch, very long prompt and long decode.
+        tags: [server, small_batch, very_long_context, long_output]
+        overrides: {workload: {batch_size: 4, input_tokens: 32768, output_tokens: 8192}}
+      - id: off-homo-b4-i65536-o8192
+        tier: full
+        scenario: offline_homogeneous
+        template: server_chime_screen
+        description: Small batch close to the large-context PIM capacity region.
+        tags: [server, small_batch, extreme_context, long_output, capacity_boundary]
+        overrides: {workload: {batch_size: 4, input_tokens: 65536, output_tokens: 8192}}
+
+      - id: off-homo-b16-i512-o128
+        tier: core
+        scenario: offline_homogeneous
+        template: server_chime_screen
+        description: Large batch, short prompt and short decode.
+        tags: [server, large_batch, short_context, short_output]
+        overrides: {workload: {batch_size: 16, input_tokens: 512, output_tokens: 128}}
+      - id: off-homo-b16-i512-o4096
+        tier: full
+        scenario: offline_homogeneous
+        template: server_chime_screen
+        description: Large batch, short prompt and long decode.
+        tags: [server, large_batch, short_context, long_output]
+        overrides: {workload: {batch_size: 16, input_tokens: 512, output_tokens: 4096}}
+      - id: off-homo-b16-i2048-o256
+        tier: full
+        scenario: offline_homogeneous
+        template: server_chime_screen
+        description: Large batch, medium prompt and short decode.
+        tags: [server, large_batch, medium_context, short_output]
+        overrides: {workload: {batch_size: 16, input_tokens: 2048, output_tokens: 256}}
+      - id: off-homo-b16-i2048-o4096
+        tier: core
+        scenario: offline_homogeneous
+        template: server_chime_screen
+        description: Large batch, medium prompt and long decode.
+        tags: [server, large_batch, medium_context, long_output]
+        overrides: {workload: {batch_size: 16, input_tokens: 2048, output_tokens: 4096}}
+      - id: off-homo-b16-i8192-o256
+        tier: core
+        scenario: offline_homogeneous
+        template: server_chime_screen
+        description: Large batch, long prompt and short decode.
+        tags: [server, large_batch, long_context, short_output]
+        overrides: {workload: {batch_size: 16, input_tokens: 8192, output_tokens: 256}}
+      - id: off-homo-b16-i8192-o4096
+        tier: full
+        scenario: offline_homogeneous
+        template: server_chime_screen
+        description: Large batch, long prompt and long decode.
+        tags: [server, large_batch, long_context, long_output]
+        overrides: {workload: {batch_size: 16, input_tokens: 8192, output_tokens: 4096}}
+      - id: off-homo-b16-i16384-o4096
+        tier: core
+        scenario: offline_homogeneous
+        template: server_chime_screen
+        description: Large batch and very long context near a capacity boundary.
+        tags: [server, large_batch, very_long_context, long_output, capacity_boundary]
+        overrides: {workload: {batch_size: 16, input_tokens: 16384, output_tokens: 4096}}
+
+      - id: off-homo-b32-i512-o128
+        tier: full
+        scenario: offline_homogeneous
+        template: server_chime_screen
+        description: Very large batch, short prompt and short decode.
+        tags: [server, very_large_batch, short_context, short_output]
+        overrides: {workload: {batch_size: 32, input_tokens: 512, output_tokens: 128}}
+      - id: off-homo-b32-i512-o4096
+        tier: core
+        scenario: offline_homogeneous
+        template: server_chime_screen
+        description: Very large batch, short prompt and long decode.
+        tags: [server, very_large_batch, short_context, long_output]
+        overrides: {workload: {batch_size: 32, input_tokens: 512, output_tokens: 4096}}
+      - id: off-homo-b32-i2048-o256
+        tier: full
+        scenario: offline_homogeneous
+        template: server_chime_screen
+        description: Very large batch, medium prompt and short decode.
+        tags: [server, very_large_batch, medium_context, short_output]
+        overrides: {workload: {batch_size: 32, input_tokens: 2048, output_tokens: 256}}
+      - id: off-homo-b32-i2048-o4096
+        tier: full
+        scenario: offline_homogeneous
+        template: server_chime_screen
+        description: Very large batch, medium prompt and long decode.
+        tags: [server, very_large_batch, medium_context, long_output]
+        overrides: {workload: {batch_size: 32, input_tokens: 2048, output_tokens: 4096}}
+      - id: off-homo-b32-i8192-o256
+        tier: full
+        scenario: offline_homogeneous
+        template: server_chime_screen
+        description: Very large batch, long prompt and short decode.
+        tags: [server, very_large_batch, long_context, short_output]
+        overrides: {workload: {batch_size: 32, input_tokens: 8192, output_tokens: 256}}
+      - id: off-homo-b32-i8192-o4096
+        tier: core
+        scenario: offline_homogeneous
+        template: server_chime_screen
+        description: Very large batch, long prompt and long decode.
+        tags: [server, very_large_batch, long_context, long_output, capacity_boundary]
+        overrides: {workload: {batch_size: 32, input_tokens: 8192, output_tokens: 4096}}
+
+      - id: off-homo-b64-i512-o128
+        tier: core
+        scenario: offline_homogeneous
+        template: server_chime_screen
+        description: Maximum suite batch, short prompt and short decode.
+        tags: [server, maximum_batch, short_context, short_output]
+        overrides: {workload: {batch_size: 64, input_tokens: 512, output_tokens: 128}}
+      - id: off-homo-b64-i512-o4096
+        tier: full
+        scenario: offline_homogeneous
+        template: server_chime_screen
+        description: Maximum suite batch, short prompt and long decode.
+        tags: [server, maximum_batch, short_context, long_output]
+        overrides: {workload: {batch_size: 64, input_tokens: 512, output_tokens: 4096}}
+      - id: off-homo-b64-i2048-o256
+        tier: full
+        scenario: offline_homogeneous
+        template: server_chime_screen
+        description: Maximum suite batch, medium prompt and short decode.
+        tags: [server, maximum_batch, medium_context, short_output]
+        overrides: {workload: {batch_size: 64, input_tokens: 2048, output_tokens: 256}}
+      - id: off-homo-b64-i2048-o4096
+        tier: core
+        scenario: offline_homogeneous
+        template: server_chime_screen
+        description: Maximum suite batch, medium prompt and long decode.
+        tags: [server, maximum_batch, medium_context, long_output, capacity_boundary]
+        overrides: {workload: {batch_size: 64, input_tokens: 2048, output_tokens: 4096}}
+
+      # Three historical anchors retain continuity with earlier experiments.
+      - id: off-homo-anchor-b16-i5200-o4096
+        tier: core
+        scenario: offline_homogeneous
+        template: server_chime_screen
+        description: Earlier strong-benefit homogeneous anchor.
+        tags: [server, anchor, large_batch, long_output]
+        overrides: {workload: {batch_size: 16, input_tokens: 5200, output_tokens: 4096}}
+      - id: off-homo-anchor-b12-i5200-o1024
+        tier: core
+        scenario: offline_homogeneous
+        template: server_chime_screen
+        description: CHIME Fig.17-scale calibration geometry.
+        tags: [server, anchor, calibration_geometry]
+        overrides: {workload: {batch_size: 12, input_tokens: 5200, output_tokens: 1024}}
+      - id: off-homo-anchor-b4-i10496-o256
+        tier: smoke
+        scenario: offline_homogeneous
+        template: server_chime_screen
+        description: Earlier owner-coupled crossover anchor.
+        tags: [server, anchor, crossover, small_batch]
+        overrides: {workload: {batch_size: 4, input_tokens: 10496, output_tokens: 256}}
+
+      # Offline heterogeneous batches: all requests are decode-ready at time zero.
+      - id: off-hetero-balanced-b8
+        tier: core
+        scenario: offline_heterogeneous
+        template: server_chime_screen
+        description: Eight equal medium requests as a heterogeneous control.
+        tags: [server, offline, heterogeneous_control]
+        overrides:
+          workload:
+            type: closed_batch
+            requests:
+              - {request_id: r0, input_tokens: 2048, output_tokens: 2048}
+              - {request_id: r1, input_tokens: 2048, output_tokens: 2048}
+              - {request_id: r2, input_tokens: 2048, output_tokens: 2048}
+              - {request_id: r3, input_tokens: 2048, output_tokens: 2048}
+              - {request_id: r4, input_tokens: 2048, output_tokens: 2048}
+              - {request_id: r5, input_tokens: 2048, output_tokens: 2048}
+              - {request_id: r6, input_tokens: 2048, output_tokens: 2048}
+              - {request_id: r7, input_tokens: 2048, output_tokens: 2048}
+      - id: off-hetero-input-spread-b8
+        tier: core
+        scenario: offline_heterogeneous
+        template: server_chime_screen
+        description: Equal output lengths with input contexts spanning 512 to 65536.
+        tags: [server, offline, heterogeneous, input_spread]
+        overrides:
+          workload:
+            type: closed_batch
+            requests:
+              - {request_id: r0, input_tokens: 512, output_tokens: 1024}
+              - {request_id: r1, input_tokens: 1024, output_tokens: 1024}
+              - {request_id: r2, input_tokens: 2048, output_tokens: 1024}
+              - {request_id: r3, input_tokens: 4096, output_tokens: 1024}
+              - {request_id: r4, input_tokens: 8192, output_tokens: 1024}
+              - {request_id: r5, input_tokens: 16384, output_tokens: 1024}
+              - {request_id: r6, input_tokens: 32768, output_tokens: 1024}
+              - {request_id: r7, input_tokens: 65536, output_tokens: 1024}
+      - id: off-hetero-output-staircase-b8
+        tier: core
+        scenario: offline_heterogeneous
+        template: server_chime_screen
+        description: Equal 8K prompts with staggered completion times.
+        tags: [server, offline, heterogeneous, completion_events]
+        overrides:
+          workload:
+            type: closed_batch
+            requests:
+              - {request_id: r0, input_tokens: 8192, output_tokens: 128}
+              - {request_id: r1, input_tokens: 8192, output_tokens: 256}
+              - {request_id: r2, input_tokens: 8192, output_tokens: 512}
+              - {request_id: r3, input_tokens: 8192, output_tokens: 1024}
+              - {request_id: r4, input_tokens: 8192, output_tokens: 2048}
+              - {request_id: r5, input_tokens: 8192, output_tokens: 4096}
+              - {request_id: r6, input_tokens: 8192, output_tokens: 8192}
+              - {request_id: r7, input_tokens: 8192, output_tokens: 16384}
+      - id: off-hetero-mixed-b12
+        tier: full
+        scenario: offline_heterogeneous
+        template: server_chime_screen
+        description: Mixed prompt/output lengths with several completion waves.
+        tags: [server, offline, heterogeneous, mixed_lengths, completion_events]
+        overrides:
+          workload:
+            type: closed_batch
+            requests:
+              - {request_id: r0, input_tokens: 512, output_tokens: 128}
+              - {request_id: r1, input_tokens: 512, output_tokens: 4096}
+              - {request_id: r2, input_tokens: 2048, output_tokens: 256}
+              - {request_id: r3, input_tokens: 2048, output_tokens: 4096}
+              - {request_id: r4, input_tokens: 8192, output_tokens: 256}
+              - {request_id: r5, input_tokens: 8192, output_tokens: 4096}
+              - {request_id: r6, input_tokens: 16384, output_tokens: 512}
+              - {request_id: r7, input_tokens: 16384, output_tokens: 8192}
+              - {request_id: r8, input_tokens: 32768, output_tokens: 512}
+              - {request_id: r9, input_tokens: 32768, output_tokens: 8192}
+              - {request_id: r10, input_tokens: 4096, output_tokens: 1024}
+              - {request_id: r11, input_tokens: 4096, output_tokens: 2048}
+
+      # The main workstation has capacity-rich PIM (4x or 8x GPU HBM).
+      # The 32-GiB profile is retained only as a full-tier sensitivity control.
+      - id: ws-64g-b1-i512-o128
+        tier: smoke
+        scenario: workstation
+        template: workstation_64g_chime_screen
+        description: One short request with a weak 16-GiB GPU and 64-GiB PIM.
+        tags: [workstation, pim_4x_hbm, single_request, short_context]
+        overrides: {workload: {batch_size: 1, input_tokens: 512, output_tokens: 128}}
+      - id: ws-64g-b1-i8192-o2048
+        tier: core
+        scenario: workstation
+        template: workstation_64g_chime_screen
+        description: One long request with 64-GiB PIM.
+        tags: [workstation, pim_4x_hbm, single_request, long_context]
+        overrides: {workload: {batch_size: 1, input_tokens: 8192, output_tokens: 2048}}
+      - id: ws-64g-b1-i32768-o8192
+        tier: core
+        scenario: workstation
+        template: workstation_64g_chime_screen
+        description: One very long request with 64-GiB PIM.
+        tags: [workstation, pim_4x_hbm, single_request, very_long_context]
+        overrides: {workload: {batch_size: 1, input_tokens: 32768, output_tokens: 8192}}
+      - id: ws-64g-b4-i2048-o1024
+        tier: core
+        scenario: workstation
+        template: workstation_64g_chime_screen
+        description: Small-batch workload with 64-GiB PIM.
+        tags: [workstation, pim_4x_hbm, small_batch]
+        overrides: {workload: {batch_size: 4, input_tokens: 2048, output_tokens: 1024}}
+
+      - id: ws-128g-b1-i131072-o16384
+        tier: core
+        scenario: workstation
+        template: workstation_64g_chime_screen
+        description: Extreme single request requiring more than 64 GiB of PIM KV.
+        tags: [workstation, pim_8x_hbm, single_request, extreme_context]
+        overrides:
+          hardware: {preset: workstation_pim_128g}
+          workload: {batch_size: 1, input_tokens: 131072, output_tokens: 16384}
+      - id: ws-128g-b4-i32768-o8192
+        tier: full
+        scenario: workstation
+        template: workstation_64g_chime_screen
+        description: Four very long requests requiring the 128-GiB PIM profile.
+        tags: [workstation, pim_8x_hbm, small_batch, extreme_context]
+        overrides:
+          hardware: {preset: workstation_pim_128g}
+          workload: {batch_size: 4, input_tokens: 32768, output_tokens: 8192}
+
+      - id: ws-32g-b1-i32768-o8192
+        tier: full
+        scenario: workstation
+        template: workstation_64g_chime_screen
+        description: A 32-GiB PIM capacity sensitivity control.
+        tags: [workstation, pim_2x_hbm, capacity_sensitivity]
+        overrides:
+          hardware: {preset: workstation_pim_4dimm}
+          workload: {batch_size: 1, input_tokens: 32768, output_tokens: 8192}
+      - id: ws-32g-b4-i2048-o1024
+        tier: full
+        scenario: workstation
+        template: workstation_64g_chime_screen
+        description: A small-batch 32-GiB PIM sensitivity control.
+        tags: [workstation, pim_2x_hbm, small_batch, capacity_sensitivity]
+        overrides:
+          hardware: {preset: workstation_pim_4dimm}
+          workload: {batch_size: 4, input_tokens: 2048, output_tokens: 1024}
+
+      # Synthetic online cases. Arrival timestamps are decode-ready in E0.
+      - id: on-dolphin-short-n8-r1-s0
+        tier: smoke
+        scenario: online_synthetic
+        template: online_chime_screen
+        description: Fast smoke trace with short heavy-tailed requests.
+        tags: [server, online, short_output, underload]
+        overrides:
+          workload: {synthetic: {count: 8, profile: dolphin_short, arrival_rate_rps: 1.0, seed: 0}}
+      - id: on-dolphin-short-n24-r0p02-s0
+        tier: full
+        scenario: online_synthetic
+        template: online_chime_screen
+        description: Short-request trace at a deliberately low offered load.
+        tags: [server, online, short_output, low_load]
+        overrides:
+          workload: {synthetic: {count: 24, profile: dolphin_short, arrival_rate_rps: 0.02, seed: 0}}
+      - id: on-dolphin-short-n24-r0p1-s0
+        tier: core
+        scenario: online_synthetic
+        template: online_chime_screen
+        description: Short-request trace near the baseline saturation region.
+        tags: [server, online, short_output, near_saturation]
+        overrides:
+          workload: {synthetic: {count: 24, profile: dolphin_short, arrival_rate_rps: 0.1, seed: 0}}
+      - id: on-dolphin-short-n24-r0p5-s0
+        tier: core
+        scenario: online_synthetic
+        template: online_chime_screen
+        description: Short-request overloaded trace retained from the initial core run.
+        tags: [server, online, short_output, overload]
+        overrides:
+          workload: {synthetic: {count: 24, profile: dolphin_short, arrival_rate_rps: 0.5, seed: 0}}
+      - id: on-dolphin-short-n24-r2-s0
+        tier: core
+        scenario: online_synthetic
+        template: online_chime_screen
+        description: Short-request high offered load.
+        tags: [server, online, short_output, high_load]
+        overrides:
+          workload: {synthetic: {count: 24, profile: dolphin_short, arrival_rate_rps: 2.0, seed: 0}}
+      - id: on-dolphin-short-n96-r1-s1
+        tier: full
+        scenario: online_synthetic
+        template: online_chime_screen
+        description: Longer short-request trace with a second seed.
+        tags: [server, online, short_output, seed_replication]
+        overrides:
+          workload: {synthetic: {count: 96, profile: dolphin_short, arrival_rate_rps: 1.0, seed: 1}}
+      - id: on-openthoughts-n24-r0p02-s0
+        tier: full
+        scenario: online_synthetic
+        template: online_chime_screen
+        description: Medium-long reasoning trace at low offered load.
+        tags: [server, online, long_output, low_load]
+        overrides:
+          workload: {synthetic: {count: 24, profile: openthoughts, arrival_rate_rps: 0.02, seed: 0}}
+      - id: on-openthoughts-n24-r0p0005-s0
+        tier: full
+        scenario: online_synthetic
+        template: online_chime_screen
+        description: Medium-long reasoning trace at a deliberately low offered load.
+        tags: [server, online, long_output, low_load]
+        overrides:
+          workload: {synthetic: {count: 24, profile: openthoughts, arrival_rate_rps: 0.0005, seed: 0}}
+      - id: on-openthoughts-n24-r0p002-s0
+        tier: core
+        scenario: online_synthetic
+        template: online_chime_screen
+        description: Medium-long reasoning trace below the measured saturation region.
+        tags: [server, online, long_output, low_load]
+        overrides:
+          workload: {synthetic: {count: 24, profile: openthoughts, arrival_rate_rps: 0.002, seed: 0}}
+      - id: on-openthoughts-n24-r0p008-s0
+        tier: core
+        scenario: online_synthetic
+        template: online_chime_screen
+        description: Medium-long reasoning trace near the measured saturation region.
+        tags: [server, online, long_output, near_saturation]
+        overrides:
+          workload: {synthetic: {count: 24, profile: openthoughts, arrival_rate_rps: 0.008, seed: 0}}
+      - id: on-openthoughts-n24-r0p06-s0
+        tier: core
+        scenario: online_synthetic
+        template: online_chime_screen
+        description: Medium-long reasoning trace in clear overload.
+        tags: [server, online, long_output, overload]
+        overrides:
+          workload: {synthetic: {count: 24, profile: openthoughts, arrival_rate_rps: 0.06, seed: 0}}
+      - id: on-openthoughts-n96-r0p04-s1
+        tier: full
+        scenario: online_synthetic
+        template: online_chime_screen
+        description: Longer medium reasoning trace with a second seed.
+        tags: [server, online, long_output, seed_replication]
+        overrides:
+          workload: {synthetic: {count: 96, profile: openthoughts, arrival_rate_rps: 0.04, seed: 1}}
+      - id: on-openr1-n24-r0p01-s0
+        tier: core
+        scenario: online_synthetic
+        template: online_chime_screen
+        description: Very long reasoning outputs at low offered load.
+        tags: [server, online, very_long_output, low_load]
+        overrides:
+          workload: {synthetic: {count: 24, profile: openr1, arrival_rate_rps: 0.01, seed: 0}}
+      - id: on-openr1-n24-r0p0002-s0
+        tier: full
+        scenario: online_synthetic
+        template: online_chime_screen
+        description: Very long reasoning outputs at a deliberately low offered load.
+        tags: [server, online, very_long_output, low_load]
+        overrides:
+          workload: {synthetic: {count: 24, profile: openr1, arrival_rate_rps: 0.0002, seed: 0}}
+      - id: on-openr1-n24-r0p001-s0
+        tier: core
+        scenario: online_synthetic
+        template: online_chime_screen
+        description: Very long reasoning outputs below the measured saturation region.
+        tags: [server, online, very_long_output, low_load]
+        overrides:
+          workload: {synthetic: {count: 24, profile: openr1, arrival_rate_rps: 0.001, seed: 0}}
+      - id: on-openr1-n24-r0p004-s0
+        tier: core
+        scenario: online_synthetic
+        template: online_chime_screen
+        description: Very long reasoning outputs near the measured saturation region.
+        tags: [server, online, very_long_output, near_saturation]
+        overrides:
+          workload: {synthetic: {count: 24, profile: openr1, arrival_rate_rps: 0.004, seed: 0}}
+      - id: on-openr1-n24-r0p04-s0
+        tier: core
+        scenario: online_synthetic
+        template: online_chime_screen
+        description: Very long reasoning outputs at medium offered load.
+        tags: [server, online, very_long_output, medium_load]
+        overrides:
+          workload: {synthetic: {count: 24, profile: openr1, arrival_rate_rps: 0.04, seed: 0}}
+      - id: on-openr1-n24-r0p08-s0
+        tier: full
+        scenario: online_synthetic
+        template: online_chime_screen
+        description: Very long reasoning outputs at high offered load.
+        tags: [server, online, very_long_output, high_load]
+        overrides:
+          workload: {synthetic: {count: 24, profile: openr1, arrival_rate_rps: 0.08, seed: 0}}
+      - id: on-openr1-n96-r0p04-s1
+        tier: full
+        scenario: online_synthetic
+        template: online_chime_screen
+        description: Longer OpenR1 trace with a second seed.
+        tags: [server, online, very_long_output, seed_replication]
+        overrides:
+          workload: {synthetic: {count: 96, profile: openr1, arrival_rate_rps: 0.04, seed: 1}}
+      - id: on-openr1-n96-r0p04-s2
+        tier: full
+        scenario: online_synthetic
+        template: online_chime_screen
+        description: Longer OpenR1 trace with a third seed.
+        tags: [server, online, very_long_output, seed_replication]
+        overrides:
+          workload: {synthetic: {count: 96, profile: openr1, arrival_rate_rps: 0.04, seed: 2}}
+
+  e1:
+    description: >-
+      Broad low-cost screen of immutable future-KV placement with exact output
+      lengths. F operators remain on GPU. Every workload has a CHIME baseline
+      and a reactive lifetime-greedy variant; homogeneous offline workloads
+      also have a closed-form full-lifecycle balance-curve plan.
+    derived_cases:
+      - from_stage: e0
+        id_prefix: e1-chime-
+        variant: chime
+        description_prefix: CHIME paired baseline
+        tags: [e1, paired_baseline]
+        overrides: {}
+
+      - from_stage: e0
+        id_prefix: e1-lifetime-
+        variant: future_kv_lifetime
+        description_prefix: Reactive exact-length immutable future-KV placement
+        tags: [e1, future_kv, exact_length, reactive]
+        overrides:
+          simulation:
+            policy:
+              name: elastic
+              optimizer: lifetime_greedy
+              prediction: oracle
+              decision_interval: 256
+              planning_horizon_tokens: 256
+              lifetime_evaluation_stride_tokens: 256
+              min_segment_tokens: 0
+              min_switch_interval: 256
+              relative_improvement_threshold: 0.002
+              max_switches_per_decision: 8
+              switch_penalty_us: 0
+              event_driven_replan: true
+
+      - from_stage: e0
+        id_prefix: e1-balance-
+        variant: future_kv_balance_curve
+        description_prefix: Offline closed-form full-lifecycle future-KV plan
+        scenarios: [offline_homogeneous]
+        tags: [e1, future_kv, exact_length, offline_global]
+        overrides:
+          simulation:
+            policy:
+              name: elastic
+              optimizer: balance_curve
+              prediction: oracle
+              decision_interval: 64
+              planning_horizon_tokens: 256
+              min_segment_tokens: 64
+              min_switch_interval: 64
+              relative_improvement_threshold: 0
+              max_switches_per_decision: 64
+              switch_penalty_us: 0
+              event_driven_replan: false
+
+  e2:
+    description: >-
+      Representative dependency-aware replay of E1. The main comparison keeps
+      the causal exact-length lifetime policy unchanged and replaces the
+      analytic pipeline with the rankset event DAG. A separate paired
+      sensitivity charges 1 us per attention segment per layer and 10 us per
+      tail switch; these values are explicit stress assumptions, not calibrated
+      hardware measurements. Two strong homogeneous points also test the
+      bounded one-window lifecycle mode requested for deployment-friendly
+      offline planning.
+    derived_cases:
+      # Smoke workloads are promoted from their E0 core tier so the event path
+      # can be checked quickly before the expensive long-context replay.
+      - from_stage: e0
+        id_prefix: e2-event-chime-
+        variant: chime
+        tier: smoke
+        workload_ids:
+          - off-homo-b16-i8192-o256
+          - on-dolphin-short-n24-r0p5-s0
+        description_prefix: Dependency-aware CHIME baseline
+        tags: [e2, event_dag, paired_baseline]
+        overrides:
+          simulation:
+            pipeline_model: rankset_event
+            record_every: 256
+            record_pipeline_events: false
+
+      - from_stage: e0
+        id_prefix: e2-event-chime-
+        variant: chime
+        tier: core
+        workload_ids:
+          - off-homo-anchor-b16-i5200-o4096
+          - off-homo-b64-i2048-o4096
+          - off-homo-b4-i8192-o4096
+          - off-hetero-output-staircase-b8
+          - ws-64g-b1-i32768-o8192
+          - on-openr1-n24-r0p04-s0
+          - on-openthoughts-n24-r0p06-s0
+        description_prefix: Dependency-aware CHIME baseline
+        tags: [e2, event_dag, paired_baseline]
+        overrides:
+          simulation:
+            pipeline_model: rankset_event
+            record_every: 256
+            record_pipeline_events: false
+
+      - from_stage: e0
+        id_prefix: e2-event-lifetime-
+        variant: future_kv_lifetime_event
+        tier: smoke
+        workload_ids:
+          - off-homo-b16-i8192-o256
+          - on-dolphin-short-n24-r0p5-s0
+        description_prefix: Causal exact-length lifetime placement on event DAG
+        tags: [e2, event_dag, future_kv, exact_length, reactive]
+        overrides:
+          simulation:
+            pipeline_model: rankset_event
+            record_every: 256
+            record_pipeline_events: false
+            policy:
+              name: elastic
+              optimizer: lifetime_greedy
+              prediction: oracle
+              decision_interval: 256
+              planning_horizon_tokens: 256
+              lifetime_evaluation_stride_tokens: 256
+              min_segment_tokens: 0
+              min_switch_interval: 256
+              relative_improvement_threshold: 0.002
+              max_switches_per_decision: 8
+              switch_penalty_us: 0
+              switch_execution_us: 0
+              event_driven_replan: true
+
+      - from_stage: e0
+        id_prefix: e2-event-lifetime-
+        variant: future_kv_lifetime_event
+        tier: core
+        workload_ids:
+          - off-homo-anchor-b16-i5200-o4096
+          - off-homo-b64-i2048-o4096
+          - off-homo-b4-i8192-o4096
+          - off-hetero-output-staircase-b8
+          - ws-64g-b1-i32768-o8192
+          - on-openr1-n24-r0p04-s0
+          - on-openthoughts-n24-r0p06-s0
+        description_prefix: Causal exact-length lifetime placement on event DAG
+        tags: [e2, event_dag, future_kv, exact_length, reactive]
+        overrides:
+          simulation:
+            pipeline_model: rankset_event
+            record_every: 256
+            record_pipeline_events: false
+            policy:
+              name: elastic
+              optimizer: lifetime_greedy
+              prediction: oracle
+              decision_interval: 256
+              planning_horizon_tokens: 256
+              lifetime_evaluation_stride_tokens: 256
+              min_segment_tokens: 0
+              min_switch_interval: 256
+              relative_improvement_threshold: 0.002
+              max_switches_per_decision: 8
+              switch_penalty_us: 0
+              switch_execution_us: 0
+              event_driven_replan: true
+
+      # One bounded GPU-write window: (request count, start token, end token).
+      # This directly tests whether E1's high-switch balance curve can be
+      # replaced by a deployment-friendly offline mode.
+      - from_stage: e0
+        id_prefix: e2-event-mode-
+        variant: future_kv_mode_event
+        tier: core
+        workload_ids:
+          - off-homo-anchor-b16-i5200-o4096
+          - off-homo-b64-i2048-o4096
+        description_prefix: Bounded homogeneous lifecycle mode on event DAG
+        tags: [e2, event_dag, future_kv, offline_mode]
+        overrides:
+          simulation:
+            pipeline_model: rankset_event
+            record_every: 256
+            record_pipeline_events: false
+            policy:
+              name: elastic
+              optimizer: homogeneous_modes
+              prediction: oracle
+              decision_interval: 256
+              planning_horizon_tokens: 256
+              homogeneous_mode_grid_points: 5
+              homogeneous_mode_quadrature_samples: 16
+              homogeneous_mode_exact_finalists: 2
+              min_segment_tokens: 256
+              min_switch_interval: 256
+              relative_improvement_threshold: 0
+              max_switches_per_decision: 64
+              switch_penalty_us: 0
+              switch_execution_us: 0
+              event_driven_replan: false
+
+      # Paired overhead sensitivity. Workload IDs are suffixed so each has its
+      # own CHIME baseline under exactly the same hardware setup costs.
+      - from_stage: e0
+        id_prefix: e2-overhead-chime-
+        workload_id_suffix: -overhead
+        variant: chime
+        tier: core
+        workload_ids:
+          - off-homo-anchor-b16-i5200-o4096
+          - off-homo-b64-i2048-o4096
+          - on-dolphin-short-n24-r0p5-s0
+        description_prefix: Event CHIME baseline with overhead sensitivity
+        tags: [e2, event_dag, overhead_sensitivity, paired_baseline]
+        overrides:
+          hardware:
+            gpu: {segment_setup_us: 1.0}
+            pim: {segment_setup_us: 1.0}
+          simulation:
+            pipeline_model: rankset_event
+            record_every: 256
+            record_pipeline_events: false
+
+      - from_stage: e0
+        id_prefix: e2-overhead-lifetime-
+        workload_id_suffix: -overhead
+        variant: future_kv_lifetime_event_overhead
+        tier: core
+        workload_ids:
+          - off-homo-anchor-b16-i5200-o4096
+          - off-homo-b64-i2048-o4096
+          - on-dolphin-short-n24-r0p5-s0
+        description_prefix: Event lifetime placement with overhead sensitivity
+        tags: [e2, event_dag, future_kv, overhead_sensitivity]
+        overrides:
+          hardware:
+            gpu: {segment_setup_us: 1.0}
+            pim: {segment_setup_us: 1.0}
+          simulation:
+            pipeline_model: rankset_event
+            record_every: 256
+            record_pipeline_events: false
+            policy:
+              name: elastic
+              optimizer: lifetime_greedy
+              prediction: oracle
+              decision_interval: 256
+              planning_horizon_tokens: 256
+              lifetime_evaluation_stride_tokens: 256
+              min_segment_tokens: 0
+              min_switch_interval: 256
+              relative_improvement_threshold: 0.002
+              max_switches_per_decision: 8
+              switch_penalty_us: 10.0
+              switch_execution_us: 10.0
+              event_driven_replan: true

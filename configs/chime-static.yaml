@@ -1,0 +1,19 @@
+model: gpt175b
+hardware:
+  preset: chime_a100
+  gpu:
+    runtime_reserve_gib: 0
+workload:
+  type: static_batch
+  batch_size: 12
+  input_tokens: 5200
+  output_tokens: 1024
+simulation:
+  max_batch_size: 12
+  fidelity: tile
+  pipeline_model: analytic
+  subbatch_scheduler: lpt
+  operator_mapping: chime
+  record_every: 32
+  allow_gpu_prompt_fallback: false
+  policy: chime

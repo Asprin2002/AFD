@@ -1,0 +1,36 @@
+{
+  "source_name": "mooncake-conversation",
+  "source_url": "https://github.com/kvcache-ai/Mooncake/blob/main/FAST25-release/traces/conversation_trace.jsonl",
+  "source_sha256": "b8cbb061a85206d729d91cdc2981f43c9e0d99209dce588d3af5f7934408b9df",
+  "trace_sha256": "30e59b5ce667a2db7ffe7e0400ea472d16e66bc714b2ca4c0e147288911ba436",
+  "original_timestamp_unit": "milliseconds",
+  "selection": "central consecutive records by original row order",
+  "length_filter": "none; all source rows have positive lengths",
+  "time_rescaled": false,
+  "arrival_semantics_for_proposed_replay": "decode-ready; prefill not modeled",
+  "source_total_requests": 12031,
+  "source_line_first": 5504,
+  "source_line_last": 6527,
+  "request_count": 1024,
+  "native_time_span_s": 303.0,
+  "offered_rps": 3.376237623762376,
+  "input_tokens": {
+    "mean": 11117.333984375,
+    "p50": 6356,
+    "p95": 34370,
+    "max": 124847
+  },
+  "output_tokens": {
+    "mean": 352.5263671875,
+    "p50": 356,
+    "p95": 716,
+    "max": 2000
+  },
+  "max_total_tokens_in_one_request": 125053,
+  "input_ge_4096_count": 651,
+  "output_ge_1024_count": 18,
+  "both_thresholds_count": 13,
+  "max_interarrival_s": 3.0009999999999764,
+  "occupied_10s_bins": 31,
+  "total_10s_bins": 31
+}

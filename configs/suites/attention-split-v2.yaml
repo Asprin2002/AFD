@@ -1,0 +1,1159 @@
+version: 1
+name: attention-split-v2
+description: >-
+  Decode-ready CHIME experiment suite for isolating immutable future-KV
+  Attention splitting.  Existing result directories are not inputs.
+
+templates:
+  chime_offline:
+    model: gpt175b
+    hardware:
+      preset: chime_a100
+      gpu:
+        runtime_reserve_gib: 0
+    workload:
+      type: static_batch
+      batch_size: 4
+      input_tokens: 2048
+      output_tokens: 4096
+    simulation:
+      max_batch_size: 32
+      fidelity: tile
+      pipeline_model: analytic
+      subbatch_scheduler: lpt
+      operator_mapping: chime
+      record_every: 256
+      allow_gpu_prompt_fallback: false
+      admission_scheduler: fcfs
+      split_overhead_scale: 1.0
+      policy:
+        name: chime
+        prediction: oracle
+
+  chime_online:
+    model: gpt175b
+    hardware:
+      preset: chime_a100
+      gpu:
+        runtime_reserve_gib: 0
+    workload:
+      type: trace_serving
+      synthetic:
+        count: 32
+        arrival_rate_rps: 0.01
+        arrival_pattern: poisson
+        seed: 7
+        input_tokens: 2048
+        output_tokens: 4096
+    simulation:
+      max_batch_size: 16
+      fidelity: tile
+      pipeline_model: analytic
+      subbatch_scheduler: lpt
+      operator_mapping: chime
+      record_every: 256
+      allow_gpu_prompt_fallback: false
+      admission_scheduler: fcfs
+      split_overhead_scale: 1.0
+      slo_queue_ms: 60000
+      slo_tpot_ms: 170
+      policy:
+        name: chime
+        prediction: oracle
+
+stages:
+  a1_inputs:
+    description: Canonical closed workloads; this stage is not an experiment result.
+    cases:
+      - id: sl-b4-i2k-o4k
+        tier: smoke
+        scenario: offline_homogeneous
+        template: chime_offline
+        tags: [short_input, long_output, homogeneous, b4]
+        overrides: {workload: {batch_size: 4, input_tokens: 2048, output_tokens: 4096}}
+      - id: ll-b4-i32k-o8k
+        tier: smoke
+        scenario: offline_homogeneous
+        template: chime_offline
+        tags: [long_input, long_output, homogeneous, b4]
+        overrides: {workload: {batch_size: 4, input_tokens: 32768, output_tokens: 8192}}
+      - id: sl-b16-i2k-o4k
+        tier: core
+        scenario: offline_homogeneous
+        template: chime_offline
+        tags: [short_input, long_output, homogeneous, b16]
+        overrides: {workload: {batch_size: 16, input_tokens: 2048, output_tokens: 4096}}
+      - id: ll-b16-i16k-o8k
+        tier: core
+        scenario: offline_homogeneous
+        template: chime_offline
+        tags: [long_input, long_output, homogeneous, b16]
+        overrides: {workload: {batch_size: 16, input_tokens: 16384, output_tokens: 8192}}
+      - id: mixed-b16-i2k32k-o8k
+        tier: core
+        scenario: offline_heterogeneous
+        template: chime_offline
+        tags: [mixed_input, long_output, heterogeneous, b16]
+        overrides:
+          workload:
+            type: closed_batch
+            batch_size: null
+            input_tokens: null
+            output_tokens: null
+            requests:
+              - {request_id: r00, input_tokens: 2048, output_tokens: 8192}
+              - {request_id: r01, input_tokens: 2048, output_tokens: 8192}
+              - {request_id: r02, input_tokens: 2048, output_tokens: 8192}
+              - {request_id: r03, input_tokens: 2048, output_tokens: 8192}
+              - {request_id: r04, input_tokens: 2048, output_tokens: 8192}
+              - {request_id: r05, input_tokens: 2048, output_tokens: 8192}
+              - {request_id: r06, input_tokens: 2048, output_tokens: 8192}
+              - {request_id: r07, input_tokens: 2048, output_tokens: 8192}
+              - {request_id: r08, input_tokens: 32768, output_tokens: 8192}
+              - {request_id: r09, input_tokens: 32768, output_tokens: 8192}
+              - {request_id: r10, input_tokens: 32768, output_tokens: 8192}
+              - {request_id: r11, input_tokens: 32768, output_tokens: 8192}
+              - {request_id: r12, input_tokens: 32768, output_tokens: 8192}
+              - {request_id: r13, input_tokens: 32768, output_tokens: 8192}
+              - {request_id: r14, input_tokens: 32768, output_tokens: 8192}
+              - {request_id: r15, input_tokens: 32768, output_tokens: 8192}
+      - id: staircase-b16-i16k-o4k8k
+        tier: core
+        scenario: offline_heterogeneous
+        template: chime_offline
+        tags: [long_input, long_output, completion_events, b16]
+        overrides:
+          workload:
+            type: closed_batch
+            batch_size: null
+            input_tokens: null
+            output_tokens: null
+            requests:
+              - {request_id: r00, input_tokens: 16384, output_tokens: 4096}
+              - {request_id: r01, input_tokens: 16384, output_tokens: 4096}
+              - {request_id: r02, input_tokens: 16384, output_tokens: 4096}
+              - {request_id: r03, input_tokens: 16384, output_tokens: 4096}
+              - {request_id: r04, input_tokens: 16384, output_tokens: 4096}
+              - {request_id: r05, input_tokens: 16384, output_tokens: 4096}
+              - {request_id: r06, input_tokens: 16384, output_tokens: 4096}
+              - {request_id: r07, input_tokens: 16384, output_tokens: 4096}
+              - {request_id: r08, input_tokens: 16384, output_tokens: 8192}
+              - {request_id: r09, input_tokens: 16384, output_tokens: 8192}
+              - {request_id: r10, input_tokens: 16384, output_tokens: 8192}
+              - {request_id: r11, input_tokens: 16384, output_tokens: 8192}
+              - {request_id: r12, input_tokens: 16384, output_tokens: 8192}
+              - {request_id: r13, input_tokens: 16384, output_tokens: 8192}
+              - {request_id: r14, input_tokens: 16384, output_tokens: 8192}
+              - {request_id: r15, input_tokens: 16384, output_tokens: 8192}
+      - id: sl-b32-i2k-o4k
+        tier: full
+        scenario: offline_homogeneous
+        template: chime_offline
+        tags: [short_input, long_output, homogeneous, b32]
+        overrides: {workload: {batch_size: 32, input_tokens: 2048, output_tokens: 4096}}
+      - id: ll-b32-i8k-o4k
+        tier: full
+        scenario: offline_homogeneous
+        template: chime_offline
+        tags: [long_input, long_output, homogeneous, b32]
+        overrides: {workload: {batch_size: 32, input_tokens: 8192, output_tokens: 4096}}
+
+  a1_screen:
+    description: Forced future-KV GPU-writer fractions on the analytic CHIME pipeline.
+    derived_cases:
+      - from_stage: a1_inputs
+        id_prefix: a1s-chime-
+        variant: chime
+        description_prefix: CHIME control
+      - from_stage: a1_inputs
+        id_prefix: a1s-p25-
+        variant: forced_p25
+        description_prefix: 25 percent future-KV GPU writers
+        overrides:
+          simulation:
+            policy: {name: elastic, optimizer: forced_fraction, forced_gpu_fraction: 0.25}
+      - from_stage: a1_inputs
+        id_prefix: a1s-p50-
+        variant: forced_p50
+        description_prefix: 50 percent future-KV GPU writers
+        overrides:
+          simulation:
+            policy: {name: elastic, optimizer: forced_fraction, forced_gpu_fraction: 0.50}
+      - from_stage: a1_inputs
+        id_prefix: a1s-p75-
+        variant: forced_p75
+        description_prefix: 75 percent future-KV GPU writers
+        overrides:
+          simulation:
+            policy: {name: elastic, optimizer: forced_fraction, forced_gpu_fraction: 0.75}
+      - from_stage: a1_inputs
+        id_prefix: a1s-p100-
+        variant: forced_p100
+        description_prefix: 100 percent future-KV GPU writers
+        overrides:
+          simulation:
+            policy: {name: elastic, optimizer: forced_fraction, forced_gpu_fraction: 1.0}
+
+  a1_event:
+    description: Dependency-aware replay of the two homogeneous B16 split curves.
+    derived_cases:
+      - from_stage: a1_inputs
+        workload_ids: [sl-b16-i2k-o4k, ll-b16-i16k-o8k]
+        id_prefix: a1e-chime-
+        variant: chime
+        tier: core
+        overrides: {simulation: {pipeline_model: rankset_event, record_every: 512}}
+      - from_stage: a1_inputs
+        workload_ids: [sl-b16-i2k-o4k, ll-b16-i16k-o8k]
+        id_prefix: a1e-p25-
+        variant: forced_p25
+        tier: core
+        overrides:
+          simulation:
+            pipeline_model: rankset_event
+            record_every: 512
+            policy: {name: elastic, optimizer: forced_fraction, forced_gpu_fraction: 0.25}
+      - from_stage: a1_inputs
+        workload_ids: [sl-b16-i2k-o4k, ll-b16-i16k-o8k]
+        id_prefix: a1e-p50-
+        variant: forced_p50
+        tier: core
+        overrides:
+          simulation:
+            pipeline_model: rankset_event
+            record_every: 512
+            policy: {name: elastic, optimizer: forced_fraction, forced_gpu_fraction: 0.50}
+      - from_stage: a1_inputs
+        workload_ids: [sl-b16-i2k-o4k, ll-b16-i16k-o8k]
+        id_prefix: a1e-p75-
+        variant: forced_p75
+        tier: core
+        overrides:
+          simulation:
+            pipeline_model: rankset_event
+            record_every: 512
+            policy: {name: elastic, optimizer: forced_fraction, forced_gpu_fraction: 0.75}
+      - from_stage: a1_inputs
+        workload_ids: [sl-b16-i2k-o4k, ll-b16-i16k-o8k]
+        id_prefix: a1e-p100-
+        variant: forced_p100
+        tier: core
+        overrides:
+          simulation:
+            pipeline_model: rankset_event
+            record_every: 512
+            policy: {name: elastic, optimizer: forced_fraction, forced_gpu_fraction: 1.0}
+
+  a1_ideal:
+    description: Split-specific merge/statistics overhead upper-bound ablation.
+    derived_cases:
+      - from_stage: a1_inputs
+        workload_ids: [sl-b16-i2k-o4k, ll-b16-i16k-o8k]
+        id_prefix: a1i-p25-
+        variant: ideal_p25
+        tier: core
+        overrides:
+          simulation:
+            split_overhead_scale: 0.0
+            policy: {name: elastic, optimizer: forced_fraction, forced_gpu_fraction: 0.25}
+      - from_stage: a1_inputs
+        workload_ids: [sl-b16-i2k-o4k, ll-b16-i16k-o8k]
+        id_prefix: a1i-p50-
+        variant: ideal_p50
+        tier: core
+        overrides:
+          simulation:
+            split_overhead_scale: 0.0
+            policy: {name: elastic, optimizer: forced_fraction, forced_gpu_fraction: 0.50}
+      - from_stage: a1_inputs
+        workload_ids: [sl-b16-i2k-o4k, ll-b16-i16k-o8k]
+        id_prefix: a1i-p75-
+        variant: ideal_p75
+        tier: core
+        overrides:
+          simulation:
+            split_overhead_scale: 0.0
+            policy: {name: elastic, optimizer: forced_fraction, forced_gpu_fraction: 0.75}
+
+  a2_offline:
+    description: CHIME, best forced-static candidate, and dynamic future-KV placement.
+    derived_cases:
+      - from_stage: a1_inputs
+        id_prefix: a2-chime-
+        variant: chime
+        description_prefix: CHIME control
+      - from_stage: a1_inputs
+        id_prefix: a2-dynamic-
+        variant: dynamic_future_kv
+        description_prefix: event and epoch driven lifetime placement
+        overrides:
+          simulation:
+            policy:
+              name: elastic
+              optimizer: lifetime_greedy
+              prediction: oracle
+              decision_interval: 256
+              planning_horizon_tokens: 256
+              lifetime_evaluation_stride_tokens: 64
+              min_segment_tokens: 256
+              min_switch_interval: 512
+              relative_improvement_threshold: 0.002
+              max_switches_per_decision: 8
+              event_driven_replan: true
+
+  a2_event:
+    description: Event-DAG replay of CHIME and dynamic placement at B16.
+    derived_cases:
+      - from_stage: a1_inputs
+        workload_ids: [sl-b16-i2k-o4k, ll-b16-i16k-o8k]
+        id_prefix: a2e-chime-
+        variant: chime
+        tier: core
+        overrides: {simulation: {pipeline_model: rankset_event, record_every: 512}}
+      - from_stage: a1_inputs
+        workload_ids: [sl-b16-i2k-o4k, ll-b16-i16k-o8k]
+        id_prefix: a2e-dynamic-
+        variant: dynamic_future_kv
+        tier: core
+        overrides:
+          simulation:
+            pipeline_model: rankset_event
+            record_every: 512
+            policy:
+              name: elastic
+              optimizer: lifetime_greedy
+              prediction: oracle
+              decision_interval: 256
+              planning_horizon_tokens: 256
+              lifetime_evaluation_stride_tokens: 64
+              min_segment_tokens: 256
+              min_switch_interval: 512
+              relative_improvement_threshold: 0.002
+              max_switches_per_decision: 8
+              event_driven_replan: true
+
+  a3_inputs:
+    description: >-
+      Decode-ready online pilot traces. Nominal rates are anchored to the
+      paired CHIME B16 screening service rates; realized offered rate is
+      recorded from each generated trace.
+    cases:
+      - id: on-sl-r50
+        tier: core
+        scenario: online_stationary
+        template: chime_online
+        tags: [short_input, long_output, poisson, nominal_rho50]
+        overrides:
+          workload: {synthetic: {arrival_rate_rps: 0.0174}}
+      - id: on-sl-r85
+        tier: smoke
+        scenario: online_stationary
+        template: chime_online
+        tags: [short_input, long_output, poisson, nominal_rho85]
+        overrides:
+          workload: {synthetic: {arrival_rate_rps: 0.0297}}
+      - id: on-sl-r110
+        tier: core
+        scenario: online_stationary
+        template: chime_online
+        tags: [short_input, long_output, poisson, nominal_rho110]
+        overrides:
+          workload: {synthetic: {arrival_rate_rps: 0.0384}}
+      - id: on-ll-r50
+        tier: core
+        scenario: online_stationary
+        template: chime_online
+        tags: [long_input, long_output, poisson, nominal_rho50]
+        overrides:
+          workload:
+            synthetic: {arrival_rate_rps: 0.00205, input_tokens: 16384, output_tokens: 8192}
+          simulation: {slo_queue_ms: 600000, slo_tpot_ms: 720}
+      - id: on-ll-r85
+        tier: smoke
+        scenario: online_stationary
+        template: chime_online
+        tags: [long_input, long_output, poisson, nominal_rho85]
+        overrides:
+          workload:
+            synthetic: {arrival_rate_rps: 0.00349, input_tokens: 16384, output_tokens: 8192}
+          simulation: {slo_queue_ms: 600000, slo_tpot_ms: 720}
+      - id: on-ll-r110
+        tier: core
+        scenario: online_stationary
+        template: chime_online
+        tags: [long_input, long_output, poisson, nominal_rho110]
+        overrides:
+          workload:
+            synthetic: {arrival_rate_rps: 0.00451, input_tokens: 16384, output_tokens: 8192}
+          simulation: {slo_queue_ms: 600000, slo_tpot_ms: 720}
+      - id: on-mix-r50
+        tier: core
+        scenario: online_stationary
+        template: chime_online
+        tags: [mixed_input, long_output, poisson, nominal_rho50]
+        overrides:
+          workload:
+            synthetic:
+              arrival_rate_rps: 0.00367
+              classes:
+                - {weight: 1, input_tokens: 2048, output_tokens: 4096}
+                - {weight: 1, input_tokens: 16384, output_tokens: 8192}
+          simulation: {slo_queue_ms: 600000, slo_tpot_ms: 720}
+      - id: on-mix-r85
+        tier: smoke
+        scenario: online_stationary
+        template: chime_online
+        tags: [mixed_input, long_output, poisson, nominal_rho85]
+        overrides:
+          workload:
+            synthetic:
+              arrival_rate_rps: 0.00624
+              classes:
+                - {weight: 1, input_tokens: 2048, output_tokens: 4096}
+                - {weight: 1, input_tokens: 16384, output_tokens: 8192}
+          simulation: {slo_queue_ms: 600000, slo_tpot_ms: 720}
+      - id: on-mix-r110
+        tier: core
+        scenario: online_stationary
+        template: chime_online
+        tags: [mixed_input, long_output, poisson, nominal_rho110]
+        overrides:
+          workload:
+            synthetic:
+              arrival_rate_rps: 0.00808
+              classes:
+                - {weight: 1, input_tokens: 2048, output_tokens: 4096}
+                - {weight: 1, input_tokens: 16384, output_tokens: 8192}
+          simulation: {slo_queue_ms: 600000, slo_tpot_ms: 720}
+      - id: on-mix-burst-r85
+        tier: core
+        scenario: online_burst
+        template: chime_online
+        tags: [mixed_input, long_output, burst, nominal_rho85]
+        overrides:
+          workload:
+            synthetic:
+              arrival_rate_rps: 0.00624
+              arrival_pattern: burst
+              burst_size: 8
+              classes:
+                - {weight: 1, input_tokens: 2048, output_tokens: 4096}
+                - {weight: 1, input_tokens: 16384, output_tokens: 8192}
+          simulation: {slo_queue_ms: 600000, slo_tpot_ms: 720}
+    derived_cases:
+      - from_stage: a3_inputs
+        id_prefix: s23-
+        variant: input_seed23
+        workload_id_suffix: -s23
+        description_prefix: independent paired Poisson seed 23
+        overrides:
+          workload: {synthetic: {seed: 23}}
+
+  a3_online:
+    description: >-
+      Online CHIME control, two static future-KV request splits, and an
+      arrived-request-only dynamic policy. No policy can inspect future arrivals.
+    derived_cases:
+      - from_stage: a3_inputs
+        id_prefix: a3-chime-
+        variant: chime
+        description_prefix: CHIME control
+      - from_stage: a3_inputs
+        id_prefix: a3-static25-
+        variant: online_static_p25
+        description_prefix: arrival-time static 25 percent GPU writers
+        overrides:
+          simulation:
+            policy:
+              name: elastic
+              optimizer: online_static_fraction
+              forced_gpu_fraction: 0.25
+              event_driven_replan: true
+      - from_stage: a3_inputs
+        id_prefix: a3-static50-
+        variant: online_static_p50
+        description_prefix: arrival-time static 50 percent GPU writers
+        overrides:
+          simulation:
+            policy:
+              name: elastic
+              optimizer: online_static_fraction
+              forced_gpu_fraction: 0.50
+              event_driven_replan: true
+      - from_stage: a3_inputs
+        id_prefix: a3-dynamic-
+        variant: dynamic_future_kv
+        description_prefix: arrived-request-only dynamic future-KV placement
+        overrides:
+          simulation:
+            policy:
+              name: elastic
+              optimizer: lifetime_greedy
+              prediction: oracle
+              decision_interval: 256
+              planning_horizon_tokens: 256
+              lifetime_evaluation_stride_tokens: 128
+              min_segment_tokens: 256
+              min_switch_interval: 512
+              relative_improvement_threshold: 0.002
+              max_switches_per_decision: 8
+              event_driven_replan: true
+              require_source_bottleneck: true
+
+  a3_event:
+    description: >-
+      Rankset-event execution of three seed-7 online representatives. Dynamic
+      actions use the analytic policy model, while every simulated iteration
+      and reported metric uses the event DAG.
+    derived_cases:
+      - from_stage: a3_inputs
+        workload_ids: [on-sl-r85, on-ll-r85, on-mix-r85]
+        id_prefix: a3e-chime-
+        variant: chime
+        tier: core
+        overrides:
+          workload: {synthetic: {count: 8}}
+          simulation: {pipeline_model: rankset_event, record_every: 512}
+      - from_stage: a3_inputs
+        workload_ids: [on-sl-r85, on-ll-r85, on-mix-r85]
+        id_prefix: a3e-static50-
+        variant: online_static_p50
+        tier: core
+        overrides:
+          workload: {synthetic: {count: 8}}
+          simulation:
+            pipeline_model: rankset_event
+            record_every: 512
+            policy:
+              name: elastic
+              optimizer: online_static_fraction
+              forced_gpu_fraction: 0.50
+              event_driven_replan: true
+      - from_stage: a3_inputs
+        workload_ids: [on-sl-r85, on-ll-r85, on-mix-r85]
+        id_prefix: a3e-dynamic-
+        variant: dynamic_future_kv
+        tier: core
+        overrides:
+          workload: {synthetic: {count: 8}}
+          simulation:
+            pipeline_model: rankset_event
+            policy_pipeline_model: analytic
+            record_every: 512
+            policy:
+              name: elastic
+              optimizer: lifetime_greedy
+              prediction: oracle
+              decision_interval: 256
+              planning_horizon_tokens: 256
+              lifetime_evaluation_stride_tokens: 128
+              min_segment_tokens: 256
+              min_switch_interval: 512
+              relative_improvement_threshold: 0.002
+              max_switches_per_decision: 8
+              event_driven_replan: true
+              require_source_bottleneck: true
+
+  a2_sensitivity:
+    description: >-
+      Analytic paired sensitivity for the long-input B16 case. Each CHIME
+      control receives the same hardware perturbation as its dynamic pair.
+    derived_cases:
+      - from_stage: a1_inputs
+        workload_ids: [ll-b16-i16k-o8k]
+        id_prefix: a2sens-setup1-chime-
+        workload_id_suffix: -setup1
+        variant: chime
+        tier: core
+        overrides:
+          hardware:
+            gpu: {segment_setup_us: 1.0}
+            pim: {segment_setup_us: 1.0}
+      - from_stage: a1_inputs
+        workload_ids: [ll-b16-i16k-o8k]
+        id_prefix: a2sens-setup1-dynamic-
+        workload_id_suffix: -setup1
+        variant: dynamic_future_kv
+        tier: core
+        overrides:
+          hardware:
+            gpu: {segment_setup_us: 1.0}
+            pim: {segment_setup_us: 1.0}
+          simulation:
+            policy:
+              name: elastic
+              optimizer: lifetime_greedy
+              prediction: oracle
+              decision_interval: 256
+              lifetime_evaluation_stride_tokens: 64
+              min_segment_tokens: 256
+              min_switch_interval: 512
+              relative_improvement_threshold: 0.002
+              max_switches_per_decision: 8
+              event_driven_replan: true
+      - from_stage: a1_inputs
+        workload_ids: [ll-b16-i16k-o8k]
+        id_prefix: a2sens-reserve64-chime-
+        workload_id_suffix: -reserve64
+        variant: chime
+        tier: core
+        overrides: {hardware: {gpu: {runtime_reserve_gib: 64}}}
+      - from_stage: a1_inputs
+        workload_ids: [ll-b16-i16k-o8k]
+        id_prefix: a2sens-reserve64-dynamic-
+        workload_id_suffix: -reserve64
+        variant: dynamic_future_kv
+        tier: core
+        overrides:
+          hardware: {gpu: {runtime_reserve_gib: 64}}
+          simulation:
+            policy:
+              name: elastic
+              optimizer: lifetime_greedy
+              prediction: oracle
+              decision_interval: 256
+              lifetime_evaluation_stride_tokens: 64
+              min_segment_tokens: 256
+              min_switch_interval: 512
+              relative_improvement_threshold: 0.002
+              max_switches_per_decision: 8
+              event_driven_replan: true
+      - from_stage: a1_inputs
+        workload_ids: [ll-b16-i16k-o8k]
+        id_prefix: a2sens-link30-chime-
+        workload_id_suffix: -link30
+        variant: chime
+        tier: core
+        overrides: {hardware: {link: {host_to_pim_gbps: 30, pim_to_host_gbps: 30}}}
+      - from_stage: a1_inputs
+        workload_ids: [ll-b16-i16k-o8k]
+        id_prefix: a2sens-link30-dynamic-
+        workload_id_suffix: -link30
+        variant: dynamic_future_kv
+        tier: core
+        overrides:
+          hardware: {link: {host_to_pim_gbps: 30, pim_to_host_gbps: 30}}
+          simulation:
+            policy:
+              name: elastic
+              optimizer: lifetime_greedy
+              prediction: oracle
+              decision_interval: 256
+              lifetime_evaluation_stride_tokens: 64
+              min_segment_tokens: 256
+              min_switch_interval: 512
+              relative_improvement_threshold: 0.002
+              max_switches_per_decision: 8
+              event_driven_replan: true
+      - from_stage: a1_inputs
+        workload_ids: [ll-b16-i16k-o8k]
+        id_prefix: a2sens-combined-chime-
+        workload_id_suffix: -combined
+        variant: chime
+        tier: core
+        overrides:
+          hardware:
+            gpu: {runtime_reserve_gib: 64, segment_setup_us: 1.0, kv_block_tokens: 64}
+            pim: {segment_setup_us: 1.0, kv_block_tokens: 64}
+            link: {host_to_pim_gbps: 30, pim_to_host_gbps: 30}
+      - from_stage: a1_inputs
+        workload_ids: [ll-b16-i16k-o8k]
+        id_prefix: a2sens-combined-dynamic-
+        workload_id_suffix: -combined
+        variant: dynamic_future_kv
+        tier: core
+        overrides:
+          hardware:
+            gpu: {runtime_reserve_gib: 64, segment_setup_us: 1.0, kv_block_tokens: 64}
+            pim: {segment_setup_us: 1.0, kv_block_tokens: 64}
+            link: {host_to_pim_gbps: 30, pim_to_host_gbps: 30}
+          simulation:
+            policy:
+              name: elastic
+              optimizer: lifetime_greedy
+              prediction: oracle
+              decision_interval: 256
+              lifetime_evaluation_stride_tokens: 64
+              min_segment_tokens: 256
+              min_switch_interval: 512
+              relative_improvement_threshold: 0.002
+              max_switches_per_decision: 8
+              switch_execution_us: 100.0
+              event_driven_replan: true
+
+  a3_event_full:
+    description: >-
+      Same-trace rankset-event execution for the complete 32-request seed-7
+      online workloads. Dynamic decisions use the analytic policy model; all
+      simulated execution and reported performance use rankset_event.
+    derived_cases:
+      - from_stage: a3_inputs
+        workload_ids: [on-sl-r85, on-ll-r85, on-mix-r85]
+        id_prefix: a3ef-chime-
+        variant: chime
+        tier: core
+        overrides:
+          simulation: {pipeline_model: rankset_event, record_every: 512}
+      - from_stage: a3_inputs
+        workload_ids: [on-sl-r85, on-ll-r85, on-mix-r85]
+        id_prefix: a3ef-dynamic-
+        variant: dynamic_future_kv
+        tier: core
+        overrides:
+          simulation:
+            pipeline_model: rankset_event
+            policy_pipeline_model: analytic
+            record_every: 512
+            policy:
+              name: elastic
+              optimizer: lifetime_greedy
+              prediction: oracle
+              decision_interval: 256
+              planning_horizon_tokens: 256
+              lifetime_evaluation_stride_tokens: 128
+              min_segment_tokens: 256
+              min_switch_interval: 512
+              relative_improvement_threshold: 0.002
+              max_switches_per_decision: 8
+              event_driven_replan: true
+              require_source_bottleneck: true
+
+  a2_oracle_validation:
+    description: >-
+      Small closed-batch correctness check on the analytic CHIME cost model.
+      Output length is intentionally reduced to make exhaustive enumeration
+      tractable; these cases validate search ordering, not performance claims.
+    cases:
+      - id: a2ov-chime-sl-b4-i2k-o256
+        workload_id: oracle-sl-b4-i2k-o256
+        variant: chime
+        tier: core
+        scenario: offline_oracle_validation
+        template: chime_offline
+        tags: [short_input, reduced_output, correctness_only, b4]
+        overrides:
+          workload: {batch_size: 4, input_tokens: 2048, output_tokens: 256}
+          simulation: {max_batch_size: 4, record_every: 128}
+      - id: a2ov-greedy-sl-b4-i2k-o256
+        workload_id: oracle-sl-b4-i2k-o256
+        variant: dynamic_future_kv
+        tier: core
+        scenario: offline_oracle_validation
+        template: chime_offline
+        tags: [short_input, reduced_output, correctness_only, b4]
+        overrides:
+          workload: {batch_size: 4, input_tokens: 2048, output_tokens: 256}
+          simulation:
+            max_batch_size: 4
+            record_every: 128
+            policy:
+              name: elastic
+              optimizer: lifetime_greedy
+              prediction: oracle
+              decision_interval: 128
+              planning_horizon_tokens: 128
+              lifetime_evaluation_stride_tokens: 16
+              min_segment_tokens: 128
+              min_switch_interval: 128
+              relative_improvement_threshold: 0.0
+              max_switches_per_decision: 4
+      - id: a2ov-exact-sl-b4-i2k-o256
+        workload_id: oracle-sl-b4-i2k-o256
+        variant: global_exact
+        tier: core
+        scenario: offline_oracle_validation
+        template: chime_offline
+        tags: [short_input, reduced_output, correctness_only, b4]
+        overrides:
+          workload: {batch_size: 4, input_tokens: 2048, output_tokens: 256}
+          simulation:
+            max_batch_size: 4
+            record_every: 128
+            policy:
+              name: elastic
+              optimizer: global_exact
+              prediction: oracle
+              decision_interval: 128
+              planning_horizon_tokens: 128
+              min_segment_tokens: 128
+              min_switch_interval: 128
+              relative_improvement_threshold: 0.0
+              max_switches_per_decision: 4
+              exact_max_candidates: 4
+              exact_max_cost_evaluations: 200000
+      - id: a2ov-chime-ll-b16-i16k-o256
+        workload_id: oracle-ll-b16-i16k-o256
+        variant: chime
+        tier: core
+        scenario: offline_oracle_validation
+        template: chime_offline
+        tags: [long_input, reduced_output, correctness_only, b16]
+        overrides:
+          workload: {batch_size: 16, input_tokens: 16384, output_tokens: 256}
+          simulation: {max_batch_size: 16, record_every: 128}
+      - id: a2ov-greedy-ll-b16-i16k-o256
+        workload_id: oracle-ll-b16-i16k-o256
+        variant: dynamic_future_kv
+        tier: core
+        scenario: offline_oracle_validation
+        template: chime_offline
+        tags: [long_input, reduced_output, correctness_only, b16]
+        overrides:
+          workload: {batch_size: 16, input_tokens: 16384, output_tokens: 256}
+          simulation:
+            max_batch_size: 16
+            record_every: 128
+            policy:
+              name: elastic
+              optimizer: lifetime_greedy
+              prediction: oracle
+              decision_interval: 128
+              planning_horizon_tokens: 128
+              lifetime_evaluation_stride_tokens: 16
+              min_segment_tokens: 128
+              min_switch_interval: 128
+              relative_improvement_threshold: 0.0
+              max_switches_per_decision: 16
+      - id: a2ov-exact-ll-b16-i16k-o256
+        workload_id: oracle-ll-b16-i16k-o256
+        variant: global_exact
+        tier: core
+        scenario: offline_oracle_validation
+        template: chime_offline
+        tags: [long_input, reduced_output, correctness_only, b16]
+        overrides:
+          workload: {batch_size: 16, input_tokens: 16384, output_tokens: 256}
+          simulation:
+            max_batch_size: 16
+            record_every: 128
+            policy:
+              name: elastic
+              optimizer: global_exact
+              prediction: oracle
+              decision_interval: 128
+              planning_horizon_tokens: 128
+              min_segment_tokens: 128
+              min_switch_interval: 128
+              relative_improvement_threshold: 0.0
+              max_switches_per_decision: 16
+              exact_max_candidates: 16
+              exact_max_cost_evaluations: 200000
+
+  a2_event_sensitivity:
+    description: >-
+      Paired rankset-event replay of the combined adverse-cost perturbation
+      for the long-input B16 workload. Dynamic actions are selected with the
+      analytic model, but execution and reported performance use the event DAG.
+    derived_cases:
+      - from_stage: a1_inputs
+        workload_ids: [ll-b16-i16k-o8k]
+        id_prefix: a2es-combined-chime-
+        workload_id_suffix: -event-combined
+        variant: chime
+        tier: core
+        overrides:
+          hardware:
+            gpu: {runtime_reserve_gib: 64, segment_setup_us: 1.0, kv_block_tokens: 64}
+            pim: {segment_setup_us: 1.0, kv_block_tokens: 64}
+            link: {host_to_pim_gbps: 30, pim_to_host_gbps: 30}
+          simulation: {pipeline_model: rankset_event, record_every: 512}
+      - from_stage: a1_inputs
+        workload_ids: [ll-b16-i16k-o8k]
+        id_prefix: a2es-combined-dynamic-
+        workload_id_suffix: -event-combined
+        variant: dynamic_future_kv
+        tier: core
+        overrides:
+          hardware:
+            gpu: {runtime_reserve_gib: 64, segment_setup_us: 1.0, kv_block_tokens: 64}
+            pim: {segment_setup_us: 1.0, kv_block_tokens: 64}
+            link: {host_to_pim_gbps: 30, pim_to_host_gbps: 30}
+          simulation:
+            pipeline_model: rankset_event
+            policy_pipeline_model: analytic
+            record_every: 512
+            policy:
+              name: elastic
+              optimizer: lifetime_greedy
+              prediction: oracle
+              decision_interval: 256
+              planning_horizon_tokens: 256
+              lifetime_evaluation_stride_tokens: 64
+              min_segment_tokens: 256
+              min_switch_interval: 512
+              relative_improvement_threshold: 0.002
+              max_switches_per_decision: 8
+              switch_penalty_us: 100.0
+              switch_execution_us: 100.0
+              event_driven_replan: true
+
+  a3_event_seed23:
+    description: >-
+      Independent-seed minimal online event replay for long-input and mixed
+      workloads. Eight requests keep this as a direction check rather than a
+      throughput claim; CHIME and dynamic use the identical seed-23 trace.
+    derived_cases:
+      - from_stage: a3_inputs
+        workload_ids: [on-ll-r85-s23, on-mix-r85-s23]
+        id_prefix: a3e23-chime-
+        variant: chime
+        tier: core
+        overrides:
+          workload: {synthetic: {count: 8}}
+          simulation: {pipeline_model: rankset_event, record_every: 512}
+      - from_stage: a3_inputs
+        workload_ids: [on-ll-r85-s23, on-mix-r85-s23]
+        id_prefix: a3e23-dynamic-
+        variant: dynamic_future_kv
+        tier: core
+        overrides:
+          workload: {synthetic: {count: 8}}
+          simulation:
+            pipeline_model: rankset_event
+            policy_pipeline_model: analytic
+            record_every: 512
+            policy:
+              name: elastic
+              optimizer: lifetime_greedy
+              prediction: oracle
+              decision_interval: 256
+              planning_horizon_tokens: 256
+              lifetime_evaluation_stride_tokens: 128
+              min_segment_tokens: 256
+              min_switch_interval: 512
+              relative_improvement_threshold: 0.002
+              max_switches_per_decision: 8
+              event_driven_replan: true
+              require_source_bottleneck: true
+
+  a3_event_overload:
+    description: >-
+      Minimal seed-7 rankset-event replay at the nominal overload arrival
+      rates. Eight requests expose the higher-active-batch direction without
+      being treated as a steady-state capacity measurement.
+    derived_cases:
+      - from_stage: a3_inputs
+        workload_ids: [on-ll-r110, on-mix-r110]
+        id_prefix: a3eo-chime-
+        variant: chime
+        tier: core
+        overrides:
+          workload: {synthetic: {count: 8}}
+          simulation: {pipeline_model: rankset_event, record_every: 512}
+      - from_stage: a3_inputs
+        workload_ids: [on-ll-r110, on-mix-r110]
+        id_prefix: a3eo-dynamic-
+        variant: dynamic_future_kv
+        tier: core
+        overrides:
+          workload: {synthetic: {count: 8}}
+          simulation:
+            pipeline_model: rankset_event
+            policy_pipeline_model: analytic
+            record_every: 512
+            policy:
+              name: elastic
+              optimizer: lifetime_greedy
+              prediction: oracle
+              decision_interval: 256
+              planning_horizon_tokens: 256
+              lifetime_evaluation_stride_tokens: 128
+              min_segment_tokens: 256
+              min_switch_interval: 512
+              relative_improvement_threshold: 0.002
+              max_switches_per_decision: 8
+              event_driven_replan: true
+              require_source_bottleneck: true
+
+  a4_public_calibration:
+    description: >-
+      Analytic CHIME closed-drain calibration for the two conditioned
+      BurstGPT_1 request sets. The 1000-rps time axis makes all 32 requests
+      effectively available at the beginning; this stage is used only to set
+      workload-specific r85/r110 scaling targets.
+    cases:
+      - id: a4cal-chime-burstgpt-short-long
+        workload_id: burstgpt-short-long-saturated
+        variant: chime
+        tier: core
+        scenario: public_trace_calibration
+        template: chime_online
+        tags: [burstgpt, public_trace, short_input, long_output, calibration_only]
+        overrides:
+          workload:
+            type: trace_serving
+            trace_file: ../../workloads/public/burstgpt/short-long-saturated.csv
+            synthetic: {}
+          simulation: {max_batch_size: 16, record_every: 256}
+      - id: a4cal-chime-burstgpt-long-long
+        workload_id: burstgpt-long-long-saturated
+        variant: chime
+        tier: core
+        scenario: public_trace_calibration
+        template: chime_online
+        tags: [burstgpt, public_trace, long_input, long_output, calibration_only]
+        overrides:
+          workload:
+            type: trace_serving
+            trace_file: ../../workloads/public/burstgpt/long-long-saturated.csv
+            synthetic: {}
+          simulation: {max_batch_size: 16, record_every: 256}
+
+  a4_public_inputs:
+    description: >-
+      Conditioned BurstGPT_1 request sets with source token lengths and
+      relative inter-arrival structure preserved. Only the time axis is scaled
+      to workload-specific r85/r110 targets from a4_public_calibration.
+    cases:
+      - id: burstgpt-sl-r85
+        tier: core
+        scenario: public_trace_burst
+        template: chime_online
+        tags: [burstgpt, public_trace, short_input, long_output, scaled_r85]
+        overrides:
+          workload:
+            type: trace_serving
+            trace_file: ../../workloads/public/burstgpt/short-long-r85.csv
+            synthetic: {}
+          simulation: {max_batch_size: 16, record_every: 256}
+      - id: burstgpt-sl-r110
+        tier: core
+        scenario: public_trace_burst
+        template: chime_online
+        tags: [burstgpt, public_trace, short_input, long_output, scaled_r110]
+        overrides:
+          workload:
+            type: trace_serving
+            trace_file: ../../workloads/public/burstgpt/short-long-r110.csv
+            synthetic: {}
+          simulation: {max_batch_size: 16, record_every: 256}
+      - id: burstgpt-ll-r85
+        tier: core
+        scenario: public_trace_burst
+        template: chime_online
+        tags: [burstgpt, public_trace, long_input, long_output, scaled_r85]
+        overrides:
+          workload:
+            type: trace_serving
+            trace_file: ../../workloads/public/burstgpt/long-long-r85.csv
+            synthetic: {}
+          simulation:
+            max_batch_size: 16
+            record_every: 256
+            slo_queue_ms: 600000
+            slo_tpot_ms: 720
+      - id: burstgpt-ll-r110
+        tier: core
+        scenario: public_trace_burst
+        template: chime_online
+        tags: [burstgpt, public_trace, long_input, long_output, scaled_r110]
+        overrides:
+          workload:
+            type: trace_serving
+            trace_file: ../../workloads/public/burstgpt/long-long-r110.csv
+            synthetic: {}
+          simulation:
+            max_batch_size: 16
+            record_every: 256
+            slo_queue_ms: 600000
+            slo_tpot_ms: 720
+
+  a4_public_analytic:
+    description: >-
+      CHIME and arrived-request-only dynamic future-KV placement on the paired
+      conditioned BurstGPT traces. This is the public-trace screening stage.
+    derived_cases:
+      - from_stage: a4_public_inputs
+        id_prefix: a4-chime-
+        variant: chime
+        description_prefix: CHIME public-trace control
+      - from_stage: a4_public_inputs
+        id_prefix: a4-dynamic-
+        variant: dynamic_future_kv
+        description_prefix: dynamic future-KV public-trace replay
+        overrides:
+          simulation:
+            policy:
+              name: elastic
+              optimizer: lifetime_greedy
+              prediction: oracle
+              decision_interval: 256
+              planning_horizon_tokens: 256
+              lifetime_evaluation_stride_tokens: 128
+              min_segment_tokens: 256
+              min_switch_interval: 512
+              relative_improvement_threshold: 0.002
+              max_switches_per_decision: 8
+              event_driven_replan: true
+              require_source_bottleneck: true
+
+  a4_public_event:
+    description: >-
+      Rankset-event replay of every conditioned BurstGPT r85/r110 pair.
+      Dynamic actions use the analytic policy model; all execution and reported
+      performance use the dependency-aware event DAG.
+    derived_cases:
+      - from_stage: a4_public_inputs
+        id_prefix: a4e-chime-
+        variant: chime
+        description_prefix: CHIME public-trace event control
+        overrides:
+          simulation: {pipeline_model: rankset_event, record_every: 256}
+      - from_stage: a4_public_inputs
+        id_prefix: a4e-dynamic-
+        variant: dynamic_future_kv
+        description_prefix: dynamic public-trace event replay
+        overrides:
+          simulation:
+            pipeline_model: rankset_event
+            policy_pipeline_model: analytic
+            record_every: 256
+            policy:
+              name: elastic
+              optimizer: lifetime_greedy
+              prediction: oracle
+              decision_interval: 256
+              planning_horizon_tokens: 256
+              lifetime_evaluation_stride_tokens: 128
+              min_segment_tokens: 256
+              min_switch_interval: 512
+              relative_improvement_threshold: 0.002
+              max_switches_per_decision: 8
+              event_driven_replan: true
+              require_source_bottleneck: true
+
+  a4_public_event_native_policy:
+    description: >-
+      Representative long-input BurstGPT replay where both policy evaluation
+      and execution use rankset_event. This isolates analytic action-selection
+      error from a genuinely unprofitable Attention split.
+    derived_cases:
+      - from_stage: a4_public_inputs
+        workload_ids: [burstgpt-ll-r85, burstgpt-ll-r110]
+        id_prefix: a4en-chime-
+        variant: chime
+        description_prefix: CHIME event-native policy control
+        overrides:
+          simulation: {pipeline_model: rankset_event, record_every: 256}
+      - from_stage: a4_public_inputs
+        workload_ids: [burstgpt-ll-r85, burstgpt-ll-r110]
+        id_prefix: a4en-dynamic-
+        variant: dynamic_future_kv_event_policy
+        description_prefix: event-native dynamic public-trace replay
+        overrides:
+          simulation:
+            pipeline_model: rankset_event
+            record_every: 256
+            policy:
+              name: elastic
+              optimizer: lifetime_greedy
+              prediction: oracle
+              decision_interval: 256
+              planning_horizon_tokens: 256
+              lifetime_evaluation_stride_tokens: 128
+              min_segment_tokens: 256
+              min_switch_interval: 512
+              relative_improvement_threshold: 0.002
+              max_switches_per_decision: 8
+              event_driven_replan: true
+              require_source_bottleneck: true

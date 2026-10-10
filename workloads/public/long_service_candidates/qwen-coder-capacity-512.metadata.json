@@ -1,0 +1,36 @@
+{
+  "source_url": "https://github.com/alibaba-edu/qwen-bailian-usagetraces-anon/blob/main/qwen_coder_blksz_16.jsonl",
+  "source_sha256": "3d74974cebb7bccb69b1ca6ea210a44d9a3033443c0271ed015327284dea1aff",
+  "trace_sha256": "75d4053924ad49443e6918b8ce068b4f9b200d992e6fafe1a28a620d5558b6f4",
+  "selection": "among all consecutive 512-record windows satisfying the static 64-record KV capacity screen and max output <= 8192, maximize the number with input >= 4096 and output >= 1024; then mean output, offered RPS, and earliest source position",
+  "source_total_requests": 43011,
+  "source_line_first": 33343,
+  "source_line_last": 33854,
+  "request_count": 512,
+  "native_time_span_s": 89.95800000000054,
+  "offered_rps": 5.680428644478501,
+  "time_rescaled": false,
+  "token_lengths_modified": false,
+  "max_batch_size_for_capacity_screen": 64,
+  "max_single_output_tokens_for_pilot": 8192,
+  "pim_kv_token_capacity": 392302,
+  "combined_kv_token_capacity": 463762,
+  "max_64_request_input_tokens": 376454,
+  "max_64_request_input_plus_output_tokens": 428463,
+  "input_tokens": {
+    "mean": 4997.96484375,
+    "p50": 3489,
+    "p95": 12960,
+    "max": 18871
+  },
+  "output_tokens": {
+    "mean": 789.09375,
+    "p50": 511,
+    "p95": 2394,
+    "max": 6010,
+    "sum": 404016
+  },
+  "both_input_output_ge_1024": 113,
+  "both_input_ge_4096_output_ge_1024": 73,
+  "max_interarrival_s": 1.306999999999789
+}

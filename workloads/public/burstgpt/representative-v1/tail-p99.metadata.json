@@ -1,0 +1,23 @@
+{
+  "source_url": "https://raw.githubusercontent.com/HPMLL/BurstGPT/main/data/BurstGPT_1.csv",
+  "source_sha256": "46fc9480ef0b748ecb2b51d512ff08c196b031782cbe6f78e28044d768e86d5a",
+  "source_rows": 1429737,
+  "source_positive_rows": 1404294,
+  "source_failed_or_zero_rows": 25443,
+  "selection": "first contiguous positive-token window at rolling-output quantile",
+  "rolling_output_quantile": 0.99,
+  "rolling_output_threshold_tokens": 37182,
+  "maximum_native_span_s": 300.0,
+  "eligible_window_count": 1297815,
+  "window_count": 32,
+  "source_row_range": [
+    257897,
+    257928
+  ],
+  "native_time_span_s": 37.0,
+  "length_filter": "none beyond positive input/output tokens",
+  "time_rescaled": false,
+  "mean_input_tokens": 852.59375,
+  "mean_output_tokens": 1198.40625,
+  "long_output_count": 14
+}

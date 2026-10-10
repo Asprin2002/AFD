@@ -1,0 +1,14 @@
+{
+  "trace_sha256": "f9b1ab7e97d66d75343bdb596d864df1cca35ac38ae19a86fcb0a0a0726644c3",
+  "generator_sha256": "898a914b76ac60f2f58827c83970697dfe651c5d58b0891a72680f533dd14fae",
+  "profile": "long_out",
+  "seed": 20260922,
+  "batch_size": 32,
+  "capacity_preflight": true,
+  "request_count": 32,
+  "total_output_tokens": 19456,
+  "total_input_tokens": 96886,
+  "mean_input_tokens": 3027.6875,
+  "mean_output_tokens": 608.0,
+  "note": "deterministic long_out recipe, seed 20260922"
+}

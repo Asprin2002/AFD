@@ -1,0 +1,51 @@
+{
+  "format_version": 1,
+  "input_tokens": {
+    "max": 892,
+    "mean": 891.03125,
+    "median": 891.0,
+    "min": 891
+  },
+  "interarrival_cv": 5.477225575051661,
+  "original_arrival_span_s": 1.0,
+  "output_arrival_span_s": 0.031,
+  "output_csv": "workloads/public/burstgpt/short-long-saturated.csv",
+  "output_tokens": {
+    "max": 3206,
+    "mean": 1765.625,
+    "median": 1682.5,
+    "min": 1278
+  },
+  "qualified_rows": 32302,
+  "realized_offered_rps": 1000.0,
+  "selected_rows": 32,
+  "selected_source_row_first": 668904,
+  "selected_source_row_last": 668935,
+  "selected_source_timestamp_first_s": 2057139.0,
+  "selected_source_timestamp_last_s": 2057140.0,
+  "semantics": {
+    "prefill": "already completed; every arrival is decode-ready",
+    "selection": "minimum-span consecutive window in conditioned class",
+    "selection_population": "successful requests only",
+    "timestamp_transform": "affine scale after subtracting first timestamp",
+    "token_lengths": "unchanged from source"
+  },
+  "source": {
+    "license": "CC-BY-4.0",
+    "name": "BurstGPT_1",
+    "sha256": "46fc9480ef0b748ecb2b51d512ff08c196b031782cbe6f78e28044d768e86d5a",
+    "url": "https://raw.githubusercontent.com/HPMLL/BurstGPT/main/data/BurstGPT_1.csv"
+  },
+  "source_failed_or_zero_token_rows": 25443,
+  "source_rows": 1429737,
+  "source_successful_rows": 1404294,
+  "target_rps": 1000.0,
+  "time_scale": 0.031,
+  "trace_class": {
+    "input_max": 2048,
+    "input_min": 1,
+    "name": "short_input_long_output",
+    "output_max": null,
+    "output_min": 1024
+  }
+}

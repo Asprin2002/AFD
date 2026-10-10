@@ -1,0 +1,36 @@
+model: gpt175b
+hardware:
+  preset: chime_a100
+  gpu:
+    runtime_reserve_gib: 0
+workload:
+  type: trace_serving
+  synthetic:
+    profile: openr1
+    count: 8
+    seed: 0
+    arrival_rate_rps: 0
+simulation:
+  max_batch_size: 8
+  fidelity: tile
+  pipeline_model: analytic
+  subbatch_scheduler: lpt
+  operator_mapping: chime
+  record_every: 64
+  allow_gpu_prompt_fallback: false
+  policy:
+    name: elastic
+    optimizer: rolling_beam
+    prediction: oracle
+    decision_interval: 64
+    planning_horizon_tokens: 256
+    beam_depth: 4
+    beam_width: 4
+    beam_request_candidates: 2
+    beam_evaluation_stride_tokens: 64
+    beam_terminal_samples: 8
+    beam_terminal_mode: tail_lifetime
+    min_segment_tokens: 64
+    min_switch_interval: 128
+    relative_improvement_threshold: 0.001
+    max_switches_per_decision: 8
