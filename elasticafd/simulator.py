@@ -983,4 +983,7 @@ class Simulator:
 
 
 def run_simulation(config: ProjectConfig) -> SimulationResult:
+    if config.simulation.cost_backend == "layout_aware":
+        from .layout_aware import run_layout_simulation
+        return run_layout_simulation(config)
     return Simulator(config).run()

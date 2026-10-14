@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from math import gamma, isfinite
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -19,6 +20,7 @@ class WorkloadConfig:
     trace_file: str | None = None
     max_requests: int | None = None
     requests: tuple[Mapping[str, Any], ...] = ()
+    prefix_blocks: tuple[Mapping[str, Any], ...] = ()
     synthetic: Mapping[str, Any] = field(default_factory=dict)
 
 
@@ -67,6 +69,32 @@ class PolicyConfig:
 
 @dataclass(frozen=True)
 class SimulationConfig:
+    cost_backend: str = "legacy"
+    attention_selector: str = "dense"
+    recent_blocks: int = 4
+    prefix_cache_budget_gib: float = 0.0
+    layout_pim_dense_scale: float = 1.0
+    # Fixed physical weight layout for PIM dense operators; 1 is the baseline.
+    layout_dense_ranksets: int = 1
+    layout_pim_softmax_scale: float = 1.0
+    layout_pim_softmax_gelements_s_per_rankset: float = 50.0
+    layout_attention_bandwidth_scale: float = 1.0
+    layout_boundary_scale: float = 1.0
+    layout_launch_scale: float = 1.0
+    layout_boundary_overlap_fraction: float = 0.25
+    # Background DMA may yield to foreground at this byte boundary.
+    layout_preparation_packet_bytes: int = 4 * 1024 * 1024
+    layout_weight_conversion_us_per_gib: float = 0.0
+    layout_rankset_sync_us: float = 0.0
+    layout_error_margin_us: float = 0.0
+    layout_max_candidates: int = 12
+    layout_min_replan_steps: int = 4
+    layout_growth_reserve_tokens: int = 1
+    layout_temporary_gib: float = 0.0
+    layout_survival_mean_tokens: float = 256.0
+    # Weibull shape of total output length.  Shape 1 is an exponential prior;
+    # survival is conditioned on the tokens already observed at each replan.
+    layout_survival_shape: float = 1.0
     max_batch_size: int = 64
     fidelity: Fidelity = "tile"
     pipeline_model: str = "analytic"
@@ -119,8 +147,10 @@ def _workload_from_raw(raw: Mapping[str, Any]) -> WorkloadConfig:
     if "type" not in values:
         raise ValueError("workload.type is required")
     requests = tuple(values.pop("requests", ()))
+    prefix_blocks = tuple(values.pop("prefix_blocks", ()))
     synthetic = dict(values.pop("synthetic", {}))
-    config = WorkloadConfig(requests=requests, synthetic=synthetic, **values)
+    config = WorkloadConfig(requests=requests, prefix_blocks=prefix_blocks,
+                            synthetic=synthetic, **values)
     if config.type == "static_batch":
         missing = [
             name
@@ -151,6 +181,53 @@ def project_config_from_dict(
     simulation_raw = dict(values.pop("simulation", {}))
     policy = _policy_from_raw(simulation_raw.pop("policy", None))
     simulation = SimulationConfig(policy=policy, **simulation_raw)
+    if (type(simulation.layout_dense_ranksets) is not int
+            or not 1 <= simulation.layout_dense_ranksets <= system.pim.ranksets):
+        raise ValueError("layout_dense_ranksets must be between 1 and PIM ranksets")
+    if simulation.cost_backend not in ("legacy", "layout_aware"):
+        raise ValueError("simulation.cost_backend must be legacy or layout_aware")
+    if simulation.cost_backend == "layout_aware":
+        if policy.name not in ("layout_fixed", "layout_greedy"):
+            raise ValueError("layout_aware requires policy.name=layout_fixed or layout_greedy")
+        if policy.prediction != "fixed" or policy.optimizer != "horizon_greedy":
+            raise ValueError("layout_aware uses its own bounded horizon search and configured length prior")
+        if simulation.attention_selector not in ("dense", "recent_blocks"):
+            raise ValueError("attention_selector must be dense or recent_blocks")
+        if (simulation.recent_blocks <= 0 or simulation.layout_max_candidates <= 0
+                or simulation.layout_min_replan_steps <= 0):
+            raise ValueError("recent_blocks, layout_max_candidates, and layout_min_replan_steps must be positive")
+        if (simulation.layout_growth_reserve_tokens < 0
+                or simulation.prefix_cache_budget_gib < 0
+                or simulation.layout_temporary_gib < 0):
+            raise ValueError("layout capacity reserves cannot be negative")
+        if (not isfinite(simulation.layout_survival_mean_tokens)
+                or simulation.layout_survival_mean_tokens <= 0):
+            raise ValueError("layout_survival_mean_tokens must be positive")
+        if (not isfinite(simulation.layout_survival_shape)
+                or simulation.layout_survival_shape <= 0):
+            raise ValueError("layout_survival_shape must be positive")
+        try:
+            survival_scale = (simulation.layout_survival_mean_tokens
+                              / gamma(1 + 1 / simulation.layout_survival_shape))
+        except OverflowError as exc:
+            raise ValueError("layout_survival_shape has no finite scale") from exc
+        if not isfinite(survival_scale) or survival_scale <= 0:
+            raise ValueError("layout survival prior must have a finite positive scale")
+        if any(getattr(simulation, name) <= 0 for name in (
+            "layout_pim_dense_scale", "layout_pim_softmax_scale",
+            "layout_attention_bandwidth_scale", "layout_boundary_scale",
+            "layout_launch_scale"
+        )) or simulation.layout_error_margin_us < 0 or simulation.layout_pim_softmax_gelements_s_per_rankset <= 0:
+            raise ValueError("layout scales must be positive and error margin nonnegative")
+        if not 0 <= simulation.layout_boundary_overlap_fraction <= 1:
+            raise ValueError("layout_boundary_overlap_fraction must be in [0, 1]")
+        if (type(simulation.layout_preparation_packet_bytes) is not int
+                or simulation.layout_preparation_packet_bytes <= 0):
+            raise ValueError("layout_preparation_packet_bytes must be a positive integer")
+        if simulation.layout_weight_conversion_us_per_gib < 0:
+            raise ValueError("layout_weight_conversion_us_per_gib cannot be negative")
+        if simulation.layout_rankset_sync_us < 0:
+            raise ValueError("layout_rankset_sync_us cannot be negative")
     if values:
         raise TypeError(f"unknown top-level fields: {', '.join(sorted(values))}")
     if simulation.fidelity not in ("roofline", "tile"):

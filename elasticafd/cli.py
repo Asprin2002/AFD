@@ -123,6 +123,8 @@ def _apply_overrides(config: ProjectConfig, args: argparse.Namespace) -> Project
     values: dict[str, Any] = {"policy": policy}
     if getattr(args, "fidelity", None):
         values["fidelity"] = args.fidelity
+    if getattr(args, "cost_backend", None):
+        values["cost_backend"] = args.cost_backend
     if getattr(args, "record_every", None) is not None:
         values["record_every"] = args.record_every
     if getattr(args, "pipeline_model", None):
@@ -998,7 +1000,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     simulate = subparsers.add_parser("simulate", help="run one workload")
     simulate.add_argument("config")
-    simulate.add_argument("--policy", choices=("chime", "elastic"))
+    simulate.add_argument("--policy", choices=("chime", "elastic", "layout_fixed", "layout_greedy"))
+    simulate.add_argument("--cost-backend", choices=("legacy", "layout_aware"))
     simulate.add_argument("--fidelity", choices=("roofline", "tile"))
     simulate.add_argument("--record-every", type=int)
     simulate.add_argument(

@@ -20,6 +20,7 @@ class WorkloadRequest:
     arrival_us: float
     input_tokens: int
     output_tokens: int
+    prefix_leaf_id: str | None = None
 
     def to_state(self) -> RequestState:
         return RequestState(
@@ -64,7 +65,23 @@ def _request_from_mapping(row: Mapping[str, Any], index: int) -> WorkloadRequest
     output_tokens = int(
         _first(row, ("output_tokens", "decode_tokens", "output_length"))
     )
-    return WorkloadRequest(request_id, arrival_us, input_tokens, output_tokens)
+    leaf = _first(row, ("prefix_leaf_id",), None)
+    return WorkloadRequest(request_id, arrival_us, input_tokens, output_tokens,
+                           str(leaf) if leaf is not None else None)
+
+
+def load_prefix_blocks(config: WorkloadConfig, base_dir: Path | None = None) -> list[Mapping[str, Any]]:
+    """Read explicit prefix identities; token lengths alone never imply sharing."""
+    blocks = list(config.prefix_blocks)
+    if config.trace_file and Path(config.trace_file).suffix.lower() == ".json":
+        path = Path(config.trace_file)
+        if not path.is_absolute():
+            path = (base_dir or Path.cwd()) / path
+        with path.open("r", encoding="utf-8") as handle:
+            value = json.load(handle)
+        if isinstance(value, Mapping):
+            blocks.extend(value.get("prefix_blocks", ()))
+    return blocks
 
 
 def _read_trace(path: Path) -> list[Mapping[str, Any]]:

@@ -1,9 +1,19 @@
 # ElasticAFD
 
-ElasticAFD is a decode-only simulator for studying GPU + DIMM-PIM scheduling
-under immutable historical KV placement. The current work compares a
+ElasticAFD is a decode-only simulator for studying GPU + DIMM-PIM scheduling.
+The legacy experiment compares a
 CHIME-style decode baseline with future-KV Attention splitting, conditional
 dense-operator placement, and their online joint policy.
+
+An opt-in `layout_aware` backend now implements physical KV references,
+historical KV copies, per-request contiguous PIM intervals, and the two-stage
+joint objective in `Attention动态调度建模与设计收敛.pdf`. See
+[LAYOUT_AWARE_MODEL.md](LAYOUT_AWARE_MODEL.md) for its inputs, assumptions, and
+paired experiment commands. The existing results below use the legacy model.
+The current layout-aware cost revision is `layout-v4-link-calendar`; its full
+shape matrix has not been rerun after the link-calendar and bottleneck-statistic
+changes. Earlier layout-aware shape results retain their original model
+revision and are only historical diagnostics.
 
 ## Read this first
 
@@ -24,10 +34,10 @@ Supporting documents:
 - [LONG_SERVICE_TRACE_CANDIDATES.md](LONG_SERVICE_TRACE_CANDIDATES.md): trace
   selection rationale.
 
-## Current execution semantics
+## Legacy execution semantics
 
 - Arrivals are decode-ready. Prefill latency is not modeled.
-- Historical KV never migrates. A policy changes only the destination of future
+- Historical KV never migrates in the legacy model. A policy changes only the destination of future
   KV and the device that computes Attention over that KV.
 - The focused pipeline uses device-contiguous GPU/PIM visits. A logical layer
   has a GPU prefix, PIM middle, and GPU suffix; the suffix joins the next
@@ -86,8 +96,9 @@ python3 -m pip install -e .
 python3 -m unittest discover -s tests -q
 ```
 
-The cleanup baseline on 2026-09-22 was 131 passing tests. On 2026-10-11,
-the full suite passed 168 tests. Source files are tracked in the GitHub
+The cleanup baseline on 2026-09-22 was 131 passing tests. Before the
+layout-aware addition, the full suite passed 168 tests; the current suite
+passed 201 tests on 2026-10-12. Source files are tracked in the GitHub
 repository `Asprin2002/AFD`; generated `results/` remain ignored by Git.
 Result metadata hashes and explicit checkpoints identify experiment outputs.
 
@@ -100,5 +111,5 @@ Result metadata hashes and explicit checkpoints identify experiment outputs.
 - A resource lower-bound gap is not an exact pipeline-bubble measurement.
 - Warm dense-offload timing excludes the initial PIM weight copy; cold timing
   includes it.
-- The current simulator has no explicit finite activation-buffer/backpressure
+- The legacy simulator has no explicit finite activation-buffer/backpressure
   model and does not include prefill, prefix caching, or calibrated PIM FFN.

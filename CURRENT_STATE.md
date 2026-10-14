@@ -1,5 +1,50 @@
 # Current state after cleanup
 
+Update (2026-10-14): The opt-in layout-aware backend is now
+`layout-v4-link-calendar`. Foreground boundary and background preparation
+transfers share one physical link schedule; a queued preparation yields at a
+provisional 4 MiB boundary, and its copy/weight readiness is shifted if
+foreground traffic intervenes. The blanket preparation exposure fraction
+has been removed. Stage bottleneck labels now use per-layer critical-path
+time; layer frequencies and raw busy times remain separate diagnostics.
+The full suite passed 214 tests after the implementation, and an additional
+packet-boundary test passed in the 47-test layout-focused suite. A B2/I128/O4
+smoke completed fixed AF and greedy AFD for both 1 and 4 dense ranksets,
+with 8 decoded tokens in each arm. No full shape matrix or efficacy claim has
+been produced for v4. Earlier v2/v3 performance numbers below retain their
+original revision and should not be interpreted as v4 results.
+
+Update (2026-10-12, completed shape reruns): Three full no-sharing dense
+`layout-v2` fixed-AF/AFD pairs have completed. B8/I8192/O4096 improved
+throughput by 3.68%, B16/I5200/O4096 by 33.10%, and B32/I2048/O4096 by
+32.62% within the same backend. The last two are the strongest completed
+legacy online `horizon_greedy` shapes (legacy gains 37.42% and 35.36%). The
+old and new absolute times are not comparable. B32 initially failed when
+multiple GPU future writers jointly exceeded the next-replan growth reserve;
+an atomic capacity-recovery action now switches enough future writers to PIM.
+The B32 rerun completed all 131,072 output tokens and stayed within capacity.
+The complete unit suite passed 202 tests. These are uncalibrated mechanism
+estimates; Python policy search took about 1062 s for B16 and 863 s for B32
+and is excluded from simulated latency. See `AFD_SHAPE_VALIDATION_PLAN.md`
+for the paired outputs and exact run locations.
+
+Update (2026-10-12): The opt-in `layout_aware` cost path is now `layout-v2`.
+The implementation sums dependent operators and layer cycles, taking a
+rankset maximum only within one operator call. The output-length prior is
+conditioned on observed generation progress; candidate forecasts advance on
+their own elapsed time. Sparse selection, preparation queueing, and growth
+reservation and data-parallel GPU resource accounting were also reviewed.
+The complete unit suite passed 201 tests at that checkpoint. Shape experiments
+were stopped at that checkpoint. Prior `layout-v1` shape gains and zero-gain
+rows are historical diagnostics, not evidence for `layout-v2` AFD efficacy.
+
+Update (2026-10-11): The sections below describe the retained legacy model
+and its historical results. An opt-in `layout_aware` backend now implements
+the new Attention scheduling design with explicit shared KV, historical
+copies, contiguous per-request intervals, and a paired two-stage objective.
+Its parameters are not fully calibrated. See `LAYOUT_AWARE_MODEL.md` for the
+new input schema, execution assumptions, and paired experiment commands.
+
 Date: 2026-09-22
 
 ## Research question

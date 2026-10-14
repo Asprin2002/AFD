@@ -1,0 +1,27 @@
+# Same arrivals and requests; sensitivity with half effective GPU/PIM Attention bandwidth.
+model: gpt175b
+hardware:
+  preset: chime_a100
+workload:
+  type: trace_serving
+  prefix_blocks:
+    - {id: root, parent_id: null, tokens: 50000}
+  requests:
+    - {request_id: long-a, arrival_us: 0, input_tokens: 100000, output_tokens: 32, prefix_leaf_id: root}
+    - {request_id: long-b, arrival_us: 0, input_tokens: 100000, output_tokens: 32, prefix_leaf_id: root}
+    - {request_id: short-a, arrival_us: 500000, input_tokens: 4096, output_tokens: 16}
+    - {request_id: medium-a, arrival_us: 1000000, input_tokens: 32768, output_tokens: 16}
+simulation:
+  cost_backend: layout_aware
+  max_batch_size: 4
+  record_every: 1
+  attention_selector: dense
+  layout_attention_bandwidth_scale: 0.5
+  layout_max_candidates: 12
+  layout_growth_reserve_tokens: 32
+  policy:
+    name: layout_greedy
+    event_driven_replan: true
+    decision_interval: 16
+    planning_horizon_tokens: 16
+    relative_improvement_threshold: 0.002

@@ -24,6 +24,8 @@ independent reproduction.
 | Aggregate PIM bandwidth | 13.0 TB/s | Paper-derived in the prototype |
 | Ranksets | 4 | Paper-derived in the prototype |
 | Ranksets used by one layer | 1 | Fig. 9 interpretation in the prototype |
+| Layout-aware PIM dense output shards | 1 | Baseline fixed layout; 2/4 are uncalibrated layout sensitivity cases |
+| Rank bus bandwidth per rankset | 409.6 GB/s | Imported prototype parameter; collective effective bandwidth unverified |
 | GPU-PIM link bandwidth | 60 GB/s each direction | Inferred from Fig. 17 transfers |
 | Runtime/activation reserve | 0 GiB | Optimistic calibration default; must be swept |
 | Explicit GPU KV budget | unset | Experiment cap applied after weights/reserve |
@@ -69,6 +71,44 @@ but they must not be described as out-of-sample validation.
 - SLO-aware placement optimization; Stage 2C evaluates SLOs after a
   makespan-oriented future-arrival oracle but does not optimize them directly.
 - Long steady-state traces with warmup/measurement/cooldown windows.
+
+The items above describe the legacy cost path. The opt-in `layout_aware`
+backend adds explicit prefix identities, physical KV copies, and a separate
+two-stage estimate. Its PIM dense/softmax execution, shared Attention KV
+reuse, and boundary overlap remain uncalibrated; see
+`LAYOUT_AWARE_MODEL.md`. Its results must be compared with an
+`layout_aware` fixed-AF baseline, not with the legacy timing numbers.
+The `layout-v2` total-output-length Weibull prior (mean 256 tokens, shape 1
+by default) is also provisional; these values have not been fitted to a
+serving trace. The prior is conditioned on observed generated tokens and
+never reads each request's target output length during planning.
+
+The `layout-v4-link-calendar` backend retains the v3 dense-shard parameters and exposes
+`simulation.layout_dense_ranksets`. It keeps Attention's single-rankset KV
+layout and changes only fixed PIM dense weight/activation placement. The
+default is 1. Four output shards divide dense matrix columns and per-rankset
+weight occupancy; they do not divide total weight bytes or external weight
+preparation bytes. Full inputs are distributed over the rank bus, and PIM
+consumers trigger conditional output gathers as detailed in
+`LAYOUT_AWARE_MODEL.md`. The rank bus is modeled as serial with no compute
+overlap; the 409.6 GB/s rate and zero-default synchronization cost have not
+been measured for these collectives. Thus 1-versus-4 results are a layout
+sensitivity estimate, not a measured hardware speedup.
+
+The v4 GPU-PIM link calendar uses the hardware preset's 60 GB/s bandwidth
+and half-duplex setting. Foreground boundary and background preparation
+events now share that capacity. Background DMA is preemptible only between
+`layout_preparation_packet_bytes` chunks (4 MiB provisional default). This
+chunk size is a scheduling assumption, not a measured DMA property, and
+should be swept. `link.transfer_latency_us` is zero in the preset; because
+real boundaries may involve many packets, that startup value must be
+measured. `layout_boundary_overlap_fraction=0.25` remains an independent,
+uncalibrated compute/communication overlap estimate. Weight layout
+conversion is off the link timeline. PIM-bank interference from preparation
+writes is absent. The old preparation exposure fraction was removed, so
+external YAML files carrying it now fail parsing rather than being ignored.
+Phase bottleneck labels now follow per-layer critical-path time, while layer
+frequency and raw busy times are reported separately.
 
 ## Stage 3 joint-AF upper bound
 

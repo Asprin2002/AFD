@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "elasticafd"
-version = "0.10.0"
-description = "Decode-only GPU + DIMM-PIM simulator for CHIME and immutable segmented KV placement"
+version = "0.11.0"
+description = "Decode-only GPU + DIMM-PIM simulator with legacy and layout-aware scheduling models"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = ["PyYAML>=6.0"]

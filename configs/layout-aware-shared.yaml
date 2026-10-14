@@ -1,0 +1,24 @@
+model: gpt175b
+hardware:
+  preset: chime_a100
+workload:
+  type: closed_batch
+  prefix_blocks:
+    - {id: shared-root, parent_id: null, tokens: 64}
+  requests:
+    - {request_id: a, arrival_us: 0, input_tokens: 128, output_tokens: 16, prefix_leaf_id: shared-root}
+    - {request_id: b, arrival_us: 0, input_tokens: 160, output_tokens: 16, prefix_leaf_id: shared-root}
+    - {request_id: c, arrival_us: 0, input_tokens: 128, output_tokens: 16, prefix_leaf_id: shared-root}
+    - {request_id: d, arrival_us: 0, input_tokens: 160, output_tokens: 16, prefix_leaf_id: shared-root}
+simulation:
+  cost_backend: layout_aware
+  max_batch_size: 4
+  record_every: 1
+  attention_selector: dense
+  layout_max_candidates: 12
+  layout_growth_reserve_tokens: 16
+  policy:
+    name: layout_greedy
+    decision_interval: 16
+    planning_horizon_tokens: 16
+    relative_improvement_threshold: 0.002
