@@ -82,6 +82,10 @@ The `layout-v2` total-output-length Weibull prior (mean 256 tokens, shape 1
 by default) is also provisional; these values have not been fitted to a
 serving trace. The prior is conditioned on observed generated tokens and
 never reads each request's target output length during planning.
+The layout policy now draws complete conditional remaining-length scenarios
+for its final candidate comparison. The default four stratified scenarios
+and `policy.prediction_seed=0` are search settings, not measurements; scenario
+count sensitivity should be checked before interpreting marginal gains.
 
 The `layout-v4-link-calendar` backend retains the v3 dense-shard parameters and exposes
 `simulation.layout_dense_ranksets`. It keeps Attention's single-rankset KV

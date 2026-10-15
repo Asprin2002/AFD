@@ -11,8 +11,9 @@ from collections import defaultdict
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from functools import lru_cache
-from math import ceil, exp, gamma
+from math import ceil, exp, expm1, gamma, log, log1p
 from pathlib import Path
+from random import Random
 from statistics import fmean
 from time import perf_counter
 from typing import Any, Iterable
@@ -633,6 +634,49 @@ def _attention_us(world: LayoutWorld, location: str, m: float,
     return latency, flops, physical_kv_read
 
 
+def _partition_attention_batch(
+        batch: dict[tuple[Any, ...], tuple[float, float, float, int | None]],
+        ) -> dict[tuple[Any, ...], tuple[float, float, float, int | None]]:
+    """Read each physical KV interval once per subbatch, even for partial overlap.
+
+    Each input range already aggregates requests selecting the exact same slice.
+    Sweep their endpoints so an overlapping slice gets the sum of its query
+    weights and the probability that at least one query accesses it.
+    """
+    grouped: dict[tuple[str, str, int | None], list[tuple[float, float, float, float]]] = defaultdict(list)
+    result = {}
+    for key, (m, length, absence, group) in batch.items():
+        if len(key) != 4:  # Forecast-only private KV has no physical block interval.
+            result[key] = (m, length, absence, group)
+            continue
+        side, block_id, start, _ = key
+        grouped[(side, block_id, group)].append((start, start + length, m, absence))
+
+    for (side, block_id, group), ranges in grouped.items():
+        events: dict[float, list[tuple[int, float, float]]] = defaultdict(list)
+        for start, end, m, absence in ranges:
+            events[start].append((1, m, absence))
+            events[end].append((-1, m, absence))
+        points = sorted(events)
+        active_m = 0.0
+        zero_absences = 0
+        log_absence = 0.0
+        for index, start in enumerate(points[:-1]):
+            for sign, m, absence in events[start]:
+                active_m += sign * m
+                if absence == 0.0:
+                    zero_absences += sign
+                else:
+                    log_absence += sign * log(absence)
+            length = points[index + 1] - start
+            if length <= 0 or active_m <= 0:
+                continue
+            presence = 1.0 if zero_absences else -expm1(log_absence)
+            result[(side, block_id, start, length)] = (
+                active_m, length, 1.0 - presence, group)
+    return result
+
+
 def _stage_cost(world: LayoutWorld, requests: list[LayoutRequest],
                 at_us: float, offset: int = 0, *, layer: int | None = None) -> StageCost:
     if not requests:
@@ -877,7 +921,7 @@ def _stage_cost(world: LayoutWorld, requests: list[LayoutRequest],
                 else:
                     for group, shard_cost in zip(dense_groups, shards):
                         pim_rank_time[operator][group] += shard_cost
-        for key, (m, length, absence, group) in attention_batch.items():
+        for key, (m, length, absence, group) in _partition_attention_batch(attention_batch).items():
             side = key[0]
             cost, flops, kv_bytes = _attention_us(world, side, m, length,
                                                   presence=1 - absence)
@@ -1562,23 +1606,63 @@ def generate_candidates(world: LayoutWorld,
     return ordered
 
 
-def _forecast_total(world: LayoutWorld, horizon: int) -> float:
+def _forecast_scenarios(world: LayoutWorld, horizon: int) -> tuple[dict[str, int], ...]:
+    """Draw coherent remaining lengths without consulting target output tokens.
+
+    Stratified conditional Weibull quantiles give every active request short
+    and long outcomes. All candidates reuse the same sampled paths.
+    """
+    sim = world.config.simulation
+    count = sim.layout_forecast_scenarios
+    rng = Random(world.config.simulation.policy.prediction_seed
+                 + 1000003 * world.replan_index)
+    scale = sim.layout_survival_mean_tokens / gamma(1 + 1 / sim.layout_survival_shape)
+    scenarios: tuple[dict[str, int], ...] = tuple({} for _ in range(count))
+    for request_id in sorted(world.requests):
+        generated = world.requests[request_id].generated
+        quantiles = [(index + rng.random()) / count for index in range(count)]
+        rng.shuffle(quantiles)
+        for scenario, quantile in zip(scenarios, quantiles):
+            hazard = ((generated / scale) ** sim.layout_survival_shape
+                      - log1p(-quantile))
+            total_length = scale * hazard ** (1 / sim.layout_survival_shape)
+            scenario[request_id] = min(horizon, max(1, ceil(total_length - generated)))
+    return scenarios
+
+
+def _forecast_total(world: LayoutWorld, horizon: int,
+                    remaining: dict[str, int]) -> float:
+    """Replay one complete future path using real request and KV lifetimes."""
     total = 0.0
-    now = world.clock_us
-    for offset in range(horizon):
-        cost = evaluate_step(world, now, offset, book_link=True).total_us
-        total += cost
-        now += cost
+    emitted = {request_id: 0 for request_id in world.requests}
+    for _ in range(horizon):
+        if not world.requests:
+            break
+        active = tuple(world.requests.values())
+        cost = evaluate_step(world, book_link=True)
+        world.clock_us += cost.total_us
+        total += cost.total_us
+        finalize_preparations(world)
+        for request in active:
+            request_id = request.source.request_id
+            world.append_token(request)
+            emitted[request_id] += 1
+            if emitted[request_id] >= remaining[request_id]:
+                world.retire(request_id)
     return total
 
 
 def _respects_service_guard(world: LayoutWorld, baseline_us: float,
                             candidate_us: float, horizon: int,
                             baseline_first_us: float,
-                            candidate_first_us: float) -> bool:
+                            candidate_first_us: float,
+                            evaluated_steps: float | None = None) -> bool:
     sim = world.config.simulation
-    baseline_step_ms = baseline_us / horizon / 1e3
-    candidate_step_ms = candidate_us / horizon / 1e3
+    # A complete scenario stops after its last request finishes, possibly
+    # before H. Both layouts replay the same lengths, hence the same divisor.
+    steps = max(evaluated_steps if evaluated_steps is not None else horizon, 1)
+    baseline_step_ms = baseline_us / steps / 1e3
+    candidate_step_ms = candidate_us / steps / 1e3
     if (sim.slo_tpot_ms is not None
             and baseline_step_ms <= sim.slo_tpot_ms
             and candidate_step_ms > sim.slo_tpot_ms):
@@ -1652,14 +1736,32 @@ def choose_action(world: LayoutWorld, *,
     # Capacity checks reserve the configured H as well, so do not silently
     # shorten only the benefit side of the comparison.
     horizon = world.config.simulation.policy.planning_horizon_tokens
-    baseline = _forecast_total(deepcopy(world), horizon)
     try:
         deepcopy(world).check_capacity(world.planning_reserve_tokens())
         baseline_feasible = True
     except MemoryError:
         baseline_feasible = False
+    if not baseline_feasible:
+        # An overflowing baseline has no valid future latency to compare.
+        # Repair physical capacity before stochastic benefit optimization.
+        recovery = _capacity_recovery_action(world)
+        if recovery is None:
+            raise MemoryError("no candidate can reserve growth until the next replan")
+        candidate = deepcopy(world)
+        apply_action(candidate, recovery, baseline_us=baseline_step)
+        if screening is not None:
+            screening.append({"greedy_round": "capacity_recovery",
+                              "candidate_outcomes": [{
+                                  "kind": "future", "request_ids": list(recovery.request_ids),
+                                  "status": "selected", "gain_us": None,
+                                  "preparation_bytes": 0}]})
+        return recovery, 0.0, baseline_step
+    scenarios = _forecast_scenarios(world, horizon)
+    evaluated_steps = fmean(max(remaining.values()) for remaining in scenarios)
+    baseline = fmean(_forecast_total(deepcopy(world), horizon, remaining)
+                     for remaining in scenarios)
     selected: list[LayoutAction] = []
-    best_score = 0.0 if baseline_feasible else float("-inf")
+    best_score = 0.0
     # Two greedy rounds suffice to expose copy+interval interaction while
     # bounding the number of full two-stage reevaluations per decision.
     for _round in range(2):
@@ -1688,9 +1790,11 @@ def choose_action(world: LayoutWorld, *,
             try:
                 apply_action(candidate, bundle, baseline_us=baseline_step)
                 first_step = evaluate_step(candidate).total_us
-                future = _forecast_total(candidate, horizon)
+                future = fmean(_forecast_total(deepcopy(candidate), horizon, remaining)
+                               for remaining in scenarios)
                 if not _respects_service_guard(world, baseline, future, horizon,
-                                               baseline_step, first_step):
+                                               baseline_step, first_step,
+                                               evaluated_steps):
                     outcomes.append({"kind": action.kind,
                                      "request_ids": list(action.request_ids),
                                      "status": "service_guard"})
@@ -1721,21 +1825,7 @@ def choose_action(world: LayoutWorld, *,
     threshold = (world.config.simulation.layout_error_margin_us
                  + world.config.simulation.policy.relative_improvement_threshold
                  * baseline)
-    if not baseline_feasible and not selected:
-        recovery = _capacity_recovery_action(world)
-        if recovery is None:
-            raise MemoryError("no candidate can reserve growth until the next replan")
-        candidate = deepcopy(world)
-        apply_action(candidate, recovery, baseline_us=baseline_step)
-        gain = baseline - _forecast_total(candidate, horizon)
-        if screening is not None:
-            screening.append({"greedy_round": "capacity_recovery",
-                              "candidate_outcomes": [{
-                                  "kind": "future", "request_ids": list(recovery.request_ids),
-                                  "status": "selected", "gain_us": gain,
-                                  "preparation_bytes": 0}]})
-        return recovery, gain, baseline
-    if baseline_feasible and best_score <= threshold:
+    if best_score <= threshold:
         return None, best_score, baseline
     return (selected[0] if len(selected) == 1 else
             LayoutAction("bundle", steps=tuple(selected))), best_score, baseline
@@ -1758,7 +1848,7 @@ def run_layout_simulation(config: ProjectConfig):
         raise ValueError("layout_aware requires layout_fixed or layout_greedy policy")
     if (config.simulation.policy.prediction != "fixed"
             or config.simulation.policy.optimizer != "horizon_greedy"):
-        raise ValueError("layout_aware requires the fixed survival-mean horizon policy")
+        raise ValueError("layout_aware requires fixed-prior scenario forecasting")
     if config.simulation.attention_selector not in ("dense", "recent_blocks"):
         raise ValueError("unknown layout attention selector")
     base_dir = config.source_path.parent if config.source_path else Path.cwd()
@@ -1969,6 +2059,7 @@ def run_layout_simulation(config: ProjectConfig):
                                      "Attention KV reuse", "launch/overlap"],
         "model": config.model.name, "policy": config.simulation.policy.name,
         "policy_candidate_revision": "phase-screen-v3",
+        "policy_forecast_revision": "conditional-weibull-scenarios-v1",
         "operator_mapping": "per_request_contiguous_interval",
         "fidelity": config.simulation.fidelity, "pipeline_model": "two_stage_layout",
         "workload": config.workload.type,
@@ -2009,6 +2100,9 @@ def run_layout_simulation(config: ProjectConfig):
             "family": "weibull", "mean_tokens": config.simulation.layout_survival_mean_tokens,
             "shape": config.simulation.layout_survival_shape,
             "conditioned_on_observed_generated_tokens": True,
+            "scenario_count": config.simulation.layout_forecast_scenarios,
+            "scenario_seed": config.simulation.policy.prediction_seed,
+            "sampling": "stratified_conditional_quantiles",
         },
         "policy_search_wall_time_s": policy_wall_s,
         "candidate_screening": candidate_screening,

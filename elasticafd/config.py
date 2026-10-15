@@ -95,6 +95,8 @@ class SimulationConfig:
     # Weibull shape of total output length.  Shape 1 is an exponential prior;
     # survival is conditioned on the tokens already observed at each replan.
     layout_survival_shape: float = 1.0
+    # Complete conditional remaining-length paths used for paired layout scoring.
+    layout_forecast_scenarios: int = 4
     max_batch_size: int = 64
     fidelity: Fidelity = "tile"
     pipeline_model: str = "analytic"
@@ -213,6 +215,9 @@ def project_config_from_dict(
             raise ValueError("layout_survival_shape has no finite scale") from exc
         if not isfinite(survival_scale) or survival_scale <= 0:
             raise ValueError("layout survival prior must have a finite positive scale")
+        if (type(simulation.layout_forecast_scenarios) is not int
+                or not 1 <= simulation.layout_forecast_scenarios <= 64):
+            raise ValueError("layout_forecast_scenarios must be between 1 and 64")
         if any(getattr(simulation, name) <= 0 for name in (
             "layout_pim_dense_scale", "layout_pim_softmax_scale",
             "layout_attention_bandwidth_scale", "layout_boundary_scale",

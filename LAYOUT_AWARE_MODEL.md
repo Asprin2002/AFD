@@ -73,9 +73,14 @@ are rejected. Complete FFNs are assigned per request.
 
 Linear calls aggregate same-layer, same-operator, same-replica ready requests
 and use GEMM FLOPs `2MKN`. Attention calls aggregate references to the *same
-physical block within one subbatch*: private `M=1`, shared `M` equals the
-participating query count, with FLOPs `4 h_q M L d_h`. Physical KV is counted
-once per shared call under an optimistic local-read reuse assumption. PIM
+physical block within one subbatch*. Selected intervals are split at every
+access boundary: an interval accessed by `M` queries contributes FLOPs
+`4 h_q M L d_h`, while its physical KV bytes are counted once under an
+optimistic local-read reuse assumption. Thus partially overlapping sparse
+windows share only their intersection; separate subbatches each pay for their
+own read. Forecast intervals use the probability that at least one request
+accesses each slice. This assumes a fused execution path capable of reusing
+each KV tile across the participating queries and is not kernel-validated. PIM
 work is summed within each physical rankset for one operator call; independently
 executable ranksets finish at their maximum for that call. Dependent operators
 and layer cycles are added in execution order. Device calls include roofline weight and
@@ -214,11 +219,24 @@ reservation checked when admitting a request or preparing an action. Larger H
 increases Python search work; `layout_max_candidates` and two greedy rounds
 bound the number of candidate trajectories. The summary records both values
 and the measured `policy_search_wall_time_s` separately from simulated time.
-Predicted survival is conditioned on observed generated progress under a
-configured Weibull total-output-length prior (`layout_survival_mean_tokens`,
-`layout_survival_shape`). Shape 1 is the exponential prior and does not treat
-an already long-running request as about to finish. Actual target output
-lengths are used only by the simulator to end requests.
+Candidate scoring samples complete remaining-output-length scenarios from a
+Weibull total-length prior conditioned on each request's observed generated
+progress (`layout_survival_mean_tokens`, `layout_survival_shape`). The default
+`layout_forecast_scenarios: 4` uses reproducible stratified conditional
+quantiles and `policy.prediction_seed`; every candidate and the fixed-layout
+baseline replay the same sampled lengths. At each predicted step, requests
+are either fully active or retired, so subbatches, shared references, KV
+growth, capacity, preparations, and link use advance on a coherent path.
+The score is the mean complete-window latency difference across scenarios.
+The planner sees neither actual target output lengths nor future arrivals.
+Shape 1 is the exponential prior and does not treat an already long-running
+request as about to finish. Expected active-token counts remain a cheap
+candidate-screening heuristic and part of the approximate service guard;
+they do not determine final candidate latency. If the current layout fails
+the deterministic growth-reserve check, capacity recovery takes precedence
+because an overflowing baseline has no valid future latency. More scenarios
+reduce sampling noise but increase Python search time roughly proportionally.
+Actual target output lengths are used only by the simulator to end requests.
 The new backend requires the default `policy.prediction: fixed` and
 `policy.optimizer: horizon_greedy`; legacy oracle/profile policy flags are
 rejected instead of being silently ignored. Preparations can overlap old

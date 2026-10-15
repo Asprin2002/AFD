@@ -16,7 +16,7 @@ from elasticafd.layout_aware import (
     PreparationJob, _schedule_preparation,
     PrefixCatalog, _attention_us, _linear_us, _linear_shard_us, apply_action, choose_action, evaluate_step,
     finalize_preparations, generate_candidates, _stage_cost, _conditional_survival,
-    _expected_active_tokens, _forecast_total, merge_attention_partials,
+    _expected_active_tokens, _forecast_scenarios, _forecast_total, merge_attention_partials,
 )
 from elasticafd.partial_softmax import partial_softmax, normalize_partial_softmax, stable_attention
 from elasticafd.simulator import run_simulation
@@ -305,6 +305,40 @@ class LayoutCostTests(unittest.TestCase):
         self.assertEqual(states[0].attention_flops, states[1].attention_flops)
         self.assertLess(states[0].pim_scan_bytes, states[1].pim_scan_bytes)
 
+    def test_sparse_partial_overlap_reads_union_within_one_subbatch(self) -> None:
+        cfg = tiny_config(shared=True, sparse=True)
+        cfg = replace(cfg, simulation=replace(cfg.simulation, recent_blocks=64),
+                      workload=replace(cfg.workload, prefix_blocks=(
+                          {"id": "common", "parent_id": None, "tokens": 100},)))
+        world = LayoutWorld(cfg, PrefixCatalog(cfg.workload.prefix_blocks))
+        world.admit(WorkloadRequest("a", 0, 120, 2, "common"), 0)
+        world.admit(WorkloadRequest("b", 0, 140, 2, "common"), 0)
+
+        # A reads [56, 100) and B reads [76, 100) of the shared prefix.
+        # The 24-token intersection is scanned once; their private tails total 60.
+        together = _stage_cost(world, list(world.requests.values()), 0, layer=0)
+        separately = sum(_stage_cost(world, [request], 0, layer=0).pim_scan_bytes
+                         for request in world.requests.values())
+        kv_token_bytes = cfg.model.kv_bytes_per_token_per_layer
+        self.assertEqual(together.pim_scan_bytes, 104 * kv_token_bytes)
+        self.assertEqual(separately, 128 * kv_token_bytes)
+        self.assertEqual(together.attention_flops,
+                         128 * 4 * cfg.model.num_attention_heads * cfg.model.head_dim)
+
+        survival = _conditional_survival(0, 5, 256, 1)
+        forecast = _stage_cost(world, list(world.requests.values()), 0,
+                               offset=5, layer=0)
+        # The 19-token forecast intersection is read if either request survives.
+        self.assertAlmostEqual(forecast.pim_scan_bytes,
+                               (128 * survival - 19 * survival ** 2)
+                               * kv_token_bytes)
+
+        # A third request places A and C together while B stays in the other
+        # subbatch: only the A/C overlap is reused in the actual two-stage step.
+        world.admit(WorkloadRequest("c", 0, 130, 2, "common"), 0)
+        self.assertEqual(evaluate_step(world).pim_scan_bytes,
+                         158 * cfg.model.layers * kv_token_bytes)
+
     def test_gemm_uses_batch_rows_and_attention_uses_query_rows(self) -> None:
         cfg = tiny_config()
         self.assertGreater(_linear_us(cfg, GPU, "qkv", 2, layer=0),
@@ -328,6 +362,21 @@ class LayoutCostTests(unittest.TestCase):
         valid = deepcopy(raw)
         valid["simulation"]["layout_dense_ranksets"] = 4
         self.assertEqual(project_config_from_dict(valid).simulation.layout_dense_ranksets, 4)
+
+    def test_forecast_scenario_count_bounds(self) -> None:
+        raw = {"model": "gpt-175b", "hardware": "chime_a100",
+               "workload": {"type": "static_batch", "batch_size": 1,
+                            "input_tokens": 8, "output_tokens": 2},
+               "simulation": {"cost_backend": "layout_aware",
+                              "policy": {"name": "layout_fixed"}}}
+        for count in (0, 65, True, 2.5):
+            invalid = deepcopy(raw)
+            invalid["simulation"]["layout_forecast_scenarios"] = count
+            with self.assertRaises(ValueError):
+                project_config_from_dict(invalid)
+        valid = deepcopy(raw)
+        valid["simulation"]["layout_forecast_scenarios"] = 8
+        self.assertEqual(project_config_from_dict(valid).simulation.layout_forecast_scenarios, 8)
 
     def test_removed_exposure_fraction_is_rejected(self) -> None:
         raw = {"model": "gpt-175b", "hardware": "chime_a100",
@@ -717,13 +766,36 @@ class LayoutCostTests(unittest.TestCase):
 
     def test_forecast_advances_on_candidate_timeline(self) -> None:
         world = LayoutWorld(tiny_config(), PrefixCatalog(()))
+        world.admit(WorkloadRequest("a", 0, 8, 1), 0)
+        world.admit(WorkloadRequest("b", 0, 8, 100), 0)
         observed = []
-        def fake_step(_world, at_us, offset, *, book_link=False):
-            observed.append((at_us, offset))
-            return type("Cost", (), {"total_us": (5.0, 7.0, 9.0)[offset]})()
+        def fake_step(current, at_us=None, offset=0, *, book_link=False):
+            observed.append((current.clock_us, tuple(sorted(current.requests)),
+                             offset, book_link))
+            return type("Cost", (), {"total_us": (5.0, 7.0, 9.0)[len(observed) - 1]})()
         with patch("elasticafd.layout_aware.evaluate_step", side_effect=fake_step):
-            self.assertEqual(_forecast_total(world, 3), 21.0)
-        self.assertEqual(observed, [(0.0, 0), (5.0, 1), (12.0, 2)])
+            self.assertEqual(_forecast_total(world, 3, {"a": 1, "b": 3}), 21.0)
+        self.assertEqual(observed, [(0.0, ("a", "b"), 0, True),
+                                    (5.0, ("b",), 0, True),
+                                    (12.0, ("b",), 0, True)])
+        self.assertEqual(world.requests, {})
+        self.assertEqual(world.blocks, {})
+
+    def test_scenario_lengths_ignore_hidden_target_and_are_reproducible(self) -> None:
+        cfg = tiny_config(policy="layout_greedy")
+        worlds = []
+        for target in (1, 10000):
+            world = LayoutWorld(cfg, PrefixCatalog(()))
+            world.admit(WorkloadRequest("a", 0, 8, target), 0)
+            world.requests["a"].generated = 32
+            worlds.append(world)
+        paths = [_forecast_scenarios(world, 64) for world in worlds]
+        self.assertEqual(paths[0], paths[1])
+        self.assertEqual(len(paths[0]), cfg.simulation.layout_forecast_scenarios)
+        self.assertTrue(all(1 <= path["a"] <= 64 for path in paths[0]))
+        moved = deepcopy(worlds[0])
+        moved.requests["a"].future_writer = GPU
+        self.assertEqual(_forecast_scenarios(moved, 64), paths[0])
 
     def test_end_to_end_fixed_and_greedy(self) -> None:
         for policy, ranksets in (("layout_fixed", 1), ("layout_greedy", 1),
@@ -740,6 +812,8 @@ class LayoutCostTests(unittest.TestCase):
                              config.simulation.policy.decision_interval)
             self.assertEqual(result.summary["planning_horizon_tokens"],
                              config.simulation.policy.planning_horizon_tokens)
+            self.assertEqual(result.summary["output_length_prior"]["scenario_count"],
+                             config.simulation.layout_forecast_scenarios)
             self.assertEqual(len(result.requests), 2)
             if policy == "layout_greedy":
                 self.assertGreater(result.summary["policy_decisions"], 0)
