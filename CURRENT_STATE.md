@@ -1,5 +1,74 @@
 # Current state after cleanup
 
+Update (2026-10-17, fourth search implementation stage): The default search
+shares immutable logical lifetime plans across candidates and exact common
+execution prefixes across scenarios of one candidate. Physical checkpoints
+are local to one candidate and capped at eight. Conservative gain ceilings
+can stop a candidate only below the current greedy round's incumbent minus
+the tie band; small first-round gains remain eligible for later combinations.
+The old full replay remains available with `forecast_mode="reference"`;
+`shared` completes every score, while `bounded` is the default.
+All 39 original-window decisions and model outputs match stage three, with
+62 bounded rejections checked against full reference scores. A fresh paired
+32-request pressure sample measured 114.157 s (reference), 104.076 s (shared),
+and 101.567 s (bounded). Shared mode matched every full candidate log; bounded
+mode matched the actions and gains, with 11 rejection bounds verified. Of
+12,800 forecast steps, 575 were reused and 523 avoided by bounds; 11,702
+still executed. This is one burst snapshot, not a latency distribution or
+online-service replay. Search remains far too slow at this load and CPU
+search time is still excluded from device time. See
+[docs/搜索耗时第四阶段.md](docs/搜索耗时第四阶段.md).
+The full 267-test suite passed in 128.033 s, including 17 new forecast and
+bound-comparison tests. Final experiment package hashes match the working tree.
+
+Update (2026-10-16, third search implementation stage): Uncontended foreground
+transfers are booked directly, unused background wait calculations and an
+immediately discarded half-duplex reflow are skipped, and retained preparation
+packets are aggregated once. Request inputs shared by all layers are prepared
+once per evaluation; fixed layer layouts are reused per configuration within
+one search. All 39 original-window decisions, full candidate scores and model
+outputs remain exactly equal to stage two. Common instrumented search totals
+are 4.971/28.682/58.573 s for busy/Mooncake/Thinking. Four uninstrumented saved
+decisions improved by 1.23–1.28x, with identical results. Instrumented speedups
+also include fewer timer calls; reservation function counts no longer measure
+physical packet counts. The model remains `layout-v4-link-calendar`, and search
+CPU time is still excluded from device time. A simultaneous 32-request Mooncake
+pressure snapshot (H128, 12 candidates, 4 scenarios) took 154.902→114.326 s
+without per-function timers, with all scores/actions equal. This is one paired
+sample, not a distribution or full online replay. The attempted 64-request
+snapshot is infeasible: both versions reject the next admission after 54 fit.
+Larger-load search remains far too slow for online use. See
+[docs/搜索耗时第三阶段.md](docs/搜索耗时第三阶段.md).
+The full 250-test suite passed in 128.705 s, including eight new link/input
+and pressure-tool regressions.
+
+Update (2026-10-16, second search implementation stage): One-search bounded
+reuse of identical operator and per-layer costs now preserves all forecast
+steps and link reservations. Against the first-stage implementation, common
+instrumentation measured search totals of 19.062→6.804 s (busy),
+133.951→39.988 s (Mooncake), and 227.265→87.249 s (Thinking). All 39 decisions,
+candidate scores and model outputs matched exactly on the same inputs. Four
+uninstrumented saved decisions also matched, with 2.35–4.20x measured speedups.
+The full 242-test suite passed. The cost model remains
+`layout-v4-link-calendar`; these are Python implementation gains, not hardware
+speedups. Mean search remains about 0.4/3.1/9.7 s in these windows and is not
+online-ready. See [docs/搜索耗时第二阶段.md](docs/搜索耗时第二阶段.md).
+
+Update (2026-10-16, search implementation): Incremental capacity accounting
+within forecasts and a pending-only preparation queue reduce repeated work
+without shortening the horizon or changing candidates, scenarios, or scoring.
+Sequential, instrumented replays of the original busy and Mooncake windows
+reduced search wall time from 41.891 to 19.062 s and from 309.237 to 133.951 s.
+All 30 decisions, candidate scores, request results, and model summary fields
+(excluding search timing) matched exactly. Three saved decisions also matched
+without detailed instrumentation, with 2.34--3.36x measured speedups. These
+are implementation timings, not hardware speedups or online-readiness claims:
+the long-window search still averages 10.304 s per decision. See
+[docs/搜索耗时第一阶段.md](docs/搜索耗时第一阶段.md) for inputs, records, and limits.
+The cost revision remains `layout-v4-link-calendar`.
+The complete 228-test suite passed, including ten new accounting and link
+readiness regression tests.
+
 Update (2026-10-14): The opt-in layout-aware backend is now
 `layout-v4-link-calendar`. Foreground boundary and background preparation
 transfers share one physical link schedule; a queued preparation yields at a

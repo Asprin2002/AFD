@@ -19,6 +19,8 @@ from time import perf_counter
 from typing import Any, Iterable
 
 from .config import ProjectConfig
+from .layout_cost_cache import current_cost_cache, reuse_costs
+from .layout_forecast import build_forecast_plan, evaluate_forecasts, ForecastPruned
 from .partial_softmax import PartialSoftmaxState, merge_partial_softmax
 from .specs import GiB
 from .workload import WorkloadRequest, build_workload, load_prefix_blocks
@@ -93,9 +95,11 @@ class PimInterval:
             raise ValueError("PIM interval would consume the whole cycle")
 
     def contains(self, layer: int, op: str) -> bool:
-        position = 5 * layer + OPS.index(op)
-        return any(5 * anchor + self.left <= position <= 5 * anchor + self.right
-                   for anchor in (layer - 1, layer, layer + 1))
+        # Intervals repeat every five operators. Legal edges can reach the
+        # preceding FFN, but never the following layer's QKV.
+        position = OPS.index(op)
+        return (self.left <= position <= self.right
+                or self.left <= position - 5 <= self.right)
 
     def neighbors(self) -> tuple[PimInterval, ...]:
         values = []
@@ -203,6 +207,20 @@ class LinkCalendar:
     jobs: dict[int, PreparationJob] = field(default_factory=dict)
     completed_preparation_busy_us: float = 0.0
     next_job_id: int = 0
+    _pending_jobs: dict[int, PreparationJob] | None = field(default=None, repr=False, compare=False)
+    _known_jobs: int = field(default=0, repr=False, compare=False)
+    _pruned_through_us: float = field(default=float("-inf"), repr=False, compare=False)
+
+
+@dataclass
+class _CapacityTotals:
+    """Incremental physical allocation counts, scoped to a forecast replay."""
+
+    gpu_kv: list[float]
+    pim_kv: list[float]
+    pim_weights: list[float]
+    gpu_writers: list[int]
+    pim_writers: int
 
 
 @dataclass
@@ -248,6 +266,7 @@ class LayoutWorld:
     link_busy_us: float = 0.0
     foreground_wait_us: float = 0.0
     replan_index: int = 0
+    _capacity_totals: _CapacityTotals | None = field(default=None, repr=False, compare=False)
 
     @property
     def kv_bytes(self) -> int:
@@ -268,6 +287,48 @@ class LayoutWorld:
                 location, self.rankset(block.layer) if location == PIM else None,
                 block.replica, ready_us,
                 preparation_job_id=preparation_job_id)
+            self._account_copy(block, block.copies[location], 1)
+
+    def _account_copy(self, block: KVBlock, copy: PhysicalCopy, sign: int) -> None:
+        totals = self._capacity_totals
+        if totals is None:
+            return
+        tile = (self.config.system.gpu.kv_block_tokens if copy.location == GPU
+                else self.config.system.pim.kv_block_tokens)
+        size = sign * ceil(block.tokens / tile) * tile * self.kv_bytes
+        if copy.location == GPU:
+            totals.gpu_kv[copy.replica] += size
+        else:
+            assert copy.rankset is not None
+            totals.pim_kv[copy.rankset] += size
+
+    def _account_writer(self, request: LayoutRequest, sign: int) -> None:
+        totals = self._capacity_totals
+        if totals is not None:
+            if request.future_writer == GPU:
+                totals.gpu_writers[request.replica] += sign
+            else:
+                totals.pim_writers += sign
+
+    def _remove_block(self, key: str) -> None:
+        block = self.blocks.pop(key)
+        for copy in block.copies.values():
+            self._account_copy(block, copy, -1)
+
+    def _start_capacity_accounting(self) -> None:
+        # Real worlds stay directly editable. Forecasts mutate only through
+        # the methods below, so their counters can safely replace rescans.
+        if self._capacity_totals is not None:
+            return
+        gpu, pim = self.kv_usage()
+        weights = [0.0] * self.config.system.pim.ranksets
+        for weight in self.weights.values():
+            for rankset, size in zip(weight.ranksets, weight.shard_bytes):
+                weights[rankset] += size
+        self._capacity_totals = _CapacityTotals(
+            gpu, pim, weights, [0] * self.config.model.data_parallel, 0)
+        for request in self.requests.values():
+            self._account_writer(request, 1)
 
     def admit(self, source: WorkloadRequest, replica: int) -> None:
         path = self.catalog.path(source.prefix_leaf_id)
@@ -304,6 +365,7 @@ class LayoutWorld:
             rows.append(ids)
         self.requests[source.request_id] = LayoutRequest(
             source, replica, rows, self.clock_us)
+        self._account_writer(self.requests[source.request_id], 1)
         try:
             self.check_capacity(self.planning_reserve_tokens())
         except MemoryError:
@@ -313,7 +375,7 @@ class LayoutWorld:
                              if block.shared and not block.refs),
                             key=lambda block: block.cached_at_us or 0)
             for block in cached:
-                del self.blocks[block.block_id]
+                self._remove_block(block.block_id)
                 try:
                     self.check_capacity(self.planning_reserve_tokens())
                     break
@@ -329,6 +391,16 @@ class LayoutWorld:
             tail = self.blocks[ids[-1]] if ids else None
             if (tail is not None and not tail.shared and len(tail.copies) == 1
                     and tail.owner == request.future_writer):
+                if self._capacity_totals is not None:
+                    copy = next(iter(tail.copies.values()))
+                    tile = (self.config.system.gpu.kv_block_tokens if copy.location == GPU
+                            else self.config.system.pim.kv_block_tokens)
+                    delta = (ceil((tail.tokens + 1) / tile)
+                             - ceil(tail.tokens / tile)) * tile * self.kv_bytes
+                    if copy.location == GPU:
+                        self._capacity_totals.gpu_kv[copy.replica] += delta
+                    else:
+                        self._capacity_totals.pim_kv[copy.rankset] += delta
                 tail.tokens += 1
             else:
                 self.sequence += 1
@@ -344,6 +416,7 @@ class LayoutWorld:
 
     def retire(self, request_id: str) -> None:
         request = self.requests.pop(request_id)
+        self._account_writer(request, -1)
         for ids in request.block_ids:
             for key in ids:
                 block = self.blocks[key]
@@ -354,7 +427,7 @@ class LayoutWorld:
                             and len(block.copies) == 1):
                         block.cached_at_us = self.clock_us
                     else:
-                        del self.blocks[key]
+                        self._remove_block(key)
         self.evict_cache()
 
     def evict_cache(self) -> None:
@@ -367,16 +440,22 @@ class LayoutWorld:
             if cached_bytes <= budget:
                 break
             cached_bytes -= block.tokens * self.kv_bytes * len(block.copies)
-            del self.blocks[block.block_id]
+            self._remove_block(block.block_id)
 
     def usage(self) -> tuple[list[float], list[float]]:
         gpu, pim = self.kv_usage()
+        if self._capacity_totals is not None:
+            return gpu, [value + size for value, size in
+                         zip(pim, self._capacity_totals.pim_weights)]
         for weight in self.weights.values():
             for rankset, size in zip(weight.ranksets, weight.shard_bytes):
                 pim[rankset] += size
         return gpu, pim
 
     def kv_usage(self) -> tuple[list[float], list[float]]:
+        if self._capacity_totals is not None:
+            return (self._capacity_totals.gpu_kv.copy(),
+                    self._capacity_totals.pim_kv.copy())
         gpu = [0.0] * self.config.model.data_parallel
         pim = [0.0] * self.config.system.pim.ranksets
         for block in self.blocks.values():
@@ -393,7 +472,15 @@ class LayoutWorld:
         return gpu, pim
 
     def check_capacity(self, growth_tokens: int | None = None) -> None:
-        gpu, pim = self.usage()
+        kv_gpu, kv_pim = self.kv_usage()
+        gpu, pim = kv_gpu.copy(), kv_pim.copy()
+        if self._capacity_totals is not None:
+            pim = [value + size for value, size in
+                   zip(pim, self._capacity_totals.pim_weights)]
+        else:
+            for weight in self.weights.values():
+                for rankset, size in zip(weight.ranksets, weight.shard_bytes):
+                    pim[rankset] += size
         reserve_tokens = (self.config.simulation.layout_growth_reserve_tokens
                           if growth_tokens is None else
                           max(growth_tokens, self.config.simulation.layout_growth_reserve_tokens))
@@ -401,12 +488,20 @@ class LayoutWorld:
         temporary = self.config.simulation.layout_temporary_gib * GiB
         gpu = [value + temporary for value in gpu]
         pim = [value + temporary for value in pim]
-        for request in self.requests.values():
-            if request.future_writer == GPU:
-                gpu[request.replica] += reserve * self.config.model.layers
-            else:
-                for layer in range(self.config.model.layers):
-                    pim[self.rankset(layer)] += reserve
+        if self._capacity_totals is not None:
+            for replica, count in enumerate(self._capacity_totals.gpu_writers):
+                gpu[replica] += count * reserve * self.config.model.layers
+            layers, extra = divmod(self.config.model.layers, len(pim))
+            for rankset in range(len(pim)):
+                pim[rankset] += (self._capacity_totals.pim_writers * reserve
+                                 * (layers + (rankset < extra)))
+        else:
+            for request in self.requests.values():
+                if request.future_writer == GPU:
+                    gpu[request.replica] += reserve * self.config.model.layers
+                else:
+                    for layer in range(self.config.model.layers):
+                        pim[self.rankset(layer)] += reserve
         gpu_limit = self.config.system.gpu_replica_kv_capacity_bytes(self.config.model)
         pim_limit = self.config.system.pim.capacity_bytes / self.config.system.pim.ranksets
         if max(gpu, default=0) > gpu_limit + 1e-9:
@@ -415,7 +510,6 @@ class LayoutWorld:
             raise MemoryError("PIM rankset KV/weight capacity exceeded")
         self.peak_gpu_bytes = max(self.peak_gpu_bytes, sum(gpu))
         self.peak_pim_bytes = max(self.peak_pim_bytes, sum(pim))
-        kv_gpu, kv_pim = self.kv_usage()
         self.peak_gpu_kv_bytes = max(self.peak_gpu_kv_bytes, sum(kv_gpu))
         self.peak_pim_kv_bytes = max(self.peak_pim_kv_bytes, sum(kv_pim))
 
@@ -433,6 +527,9 @@ class StageCost:
     merge_us: float
     cross_group_bytes: float = 0.0
     cross_group_us: float = 0.0
+
+
+_EMPTY_STAGE_COST = StageCost(*(0.0 for _ in range(11)))
 
 
 @dataclass(frozen=True)
@@ -492,6 +589,19 @@ def _expected_active_tokens(generated: int, horizon: int,
 
 def _linear_us(config: ProjectConfig, device: str, operator: str,
                m: float, *, layer: int, presence: float = 1.0) -> float:
+    cache = current_cost_cache()
+    if cache is None:
+        return _compute_linear_us(config, device, operator, m, layer=layer, presence=presence)
+    key = (cache.config_token(config), device, operator, m, presence)
+    result = cache.get("linear", key)
+    if result is None:
+        result = _compute_linear_us(config, device, operator, m, layer=layer, presence=presence)
+        cache.put("linear", key, result)
+    return result
+
+
+def _compute_linear_us(config: ProjectConfig, device: str, operator: str,
+                       m: float, *, layer: int, presence: float = 1.0) -> float:
     if m <= 0:
         return 0.0
     model, system, sim = config.model, config.system, config.simulation
@@ -537,12 +647,30 @@ def _dense_groups(world: LayoutWorld, layer: int) -> tuple[int, ...]:
     count = world.config.simulation.layout_dense_ranksets
     if type(count) is not int or not 1 <= count <= world.config.system.pim.ranksets:
         raise ValueError("layout_dense_ranksets must be between 1 and PIM ranksets")
-    return tuple((world.rankset(layer) + index) % world.config.system.pim.ranksets
-                 for index in range(count))
+    return _cyclic_dense_groups(world.rankset(layer), count, world.config.system.pim.ranksets)
+
+
+@lru_cache(maxsize=1024)
+def _cyclic_dense_groups(home: int, count: int, ranksets: int) -> tuple[int, ...]:
+    # Fixed integer layout arithmetic, independent of all physical state.
+    return tuple((home + index) % ranksets for index in range(count))
 
 
 def _linear_shard_us(config: ProjectConfig, operator: str, m: float,
                      presence: float = 1.0) -> tuple[float, ...]:
+    cache = current_cost_cache()
+    if cache is None:
+        return _compute_linear_shard_us(config, operator, m, presence)
+    key = (cache.config_token(config), operator, m, presence)
+    result = cache.get("shards", key)
+    if result is None:
+        result = _compute_linear_shard_us(config, operator, m, presence)
+        cache.put("shards", key, result)
+    return result
+
+
+def _compute_linear_shard_us(config: ProjectConfig, operator: str, m: float,
+                            presence: float = 1.0) -> tuple[float, ...]:
     count = config.simulation.layout_dense_ranksets
     if m <= 0:
         return (0.0,) * count
@@ -604,6 +732,19 @@ def _subbatches(world: LayoutWorld) -> tuple[list[LayoutRequest], list[LayoutReq
 
 def _attention_us(world: LayoutWorld, location: str, m: float,
                   length: float, presence: float = 1.0) -> tuple[float, float, float]:
+    cache = current_cost_cache()
+    if cache is None:
+        return _compute_attention_us(world, location, m, length, presence)
+    key = (cache.config_token(world.config), location, m, length, presence)
+    result = cache.get("attention", key)
+    if result is None:
+        result = _compute_attention_us(world, location, m, length, presence)
+        cache.put("attention", key, result)
+    return result
+
+
+def _compute_attention_us(world: LayoutWorld, location: str, m: float,
+                          length: float, presence: float = 1.0) -> tuple[float, float, float]:
     model, system, sim = world.config.model, world.config.system, world.config.simulation
     flops = 4 * model.num_attention_heads * m * length * model.head_dim
     kv_bytes = length * model.kv_bytes_per_token_per_layer
@@ -677,10 +818,96 @@ def _partition_attention_batch(
     return result
 
 
+def _stage_request_inputs(world: LayoutWorld, requests: list[LayoutRequest],
+                          at_us: float, offset: int) -> tuple:
+    """Inputs shared by all layers of this single, synchronous evaluation.
+
+    Nothing here survives evaluate_step: append, retirement, or a readiness
+    change on the next evaluation must build fresh inputs.
+    """
+    sim = world.config.simulation
+    virtual = (min(offset, sim.recent_blocks * world.config.system.pim.kv_block_tokens)
+               if sim.attention_selector == "recent_blocks" else offset)
+    future_identities = {}
+    rows = []
+    for request in requests:
+        weight = _conditional_survival(request.generated, offset,
+                                       sim.layout_survival_mean_tokens,
+                                       sim.layout_survival_shape)
+        future_identity = (future_identities.setdefault(
+            request.source.request_id, len(future_identities)) if virtual else None)
+        interval = request.interval_at(at_us)
+        rows.append((request.replica, (interval.left, interval.right), request.future_writer,
+                     weight, future_identity))
+    return virtual, tuple(rows)
+
+
+def _stage_cache_key(world: LayoutWorld, requests: list[LayoutRequest],
+                     at_us: float, offset: int, layer: int, config_token: int,
+                     request_inputs: tuple | None = None,
+                     layer_input: tuple | None = None) -> tuple:
+    """Describe exactly the inputs read by one layer's pure stage cost.
+
+    Local physical identities encode sharing, not request names or equal
+    lengths. Preserve request/block order so floating-point accumulation also
+    stays identical. Readiness resolves at this call's time, on each layer;
+    future calls rebuild the key on their own candidate timeline.
+    """
+    identities: dict[str, int] = {}
+    rows = []
+    virtual, inputs = (request_inputs if request_inputs is not None else
+                       _stage_request_inputs(world, requests, at_us, offset))
+    for request, common in zip(requests, inputs):
+        blocks = []
+        for block in _selected_blocks(world, request, layer, offset):
+            identity = identities.setdefault(block.block_id, len(identities))
+            side = block.owner_at(at_us)
+            group = block.copies[PIM].rankset if side == PIM else block.replica
+            blocks.append((identity, block.start_token, block.tokens, side, group))
+        rows.append((common, tuple(blocks)))
+    if layer_input is None:
+        layer_input = _stage_layer_input(world, layer, config_token)
+    return layer_input, virtual, tuple(rows)
+
+
+def _stage_layer_input(world: LayoutWorld, layer: int, config_token: int) -> tuple:
+    last = layer + 1 == world.config.model.layers
+    return (config_token, layer == 0, last, world.rankset(layer),
+            _dense_groups(world, layer), () if last else _dense_groups(world, layer + 1))
+
+
 def _stage_cost(world: LayoutWorld, requests: list[LayoutRequest],
-                at_us: float, offset: int = 0, *, layer: int | None = None) -> StageCost:
+                at_us: float, offset: int = 0, *, layer: int | None = None,
+                request_inputs: tuple | None = None,
+                config_token: int | None = None) -> StageCost:
+    cache = current_cost_cache()
     if not requests:
-        return StageCost(*(0.0 for _ in range(11)))
+        if cache is not None:
+            cache.counts["empty_stage_hits"] += 1
+        return _EMPTY_STAGE_COST
+    if cache is None or layer is None:
+        return _compute_stage_cost(world, requests, at_us, offset, layer=layer)
+    if config_token is None:
+        config_token = cache.config_token(world.config)
+    layouts = cache.layer_layouts.get(config_token)
+    if layouts is None:
+        layouts = tuple(_stage_layer_input(world, index, config_token)
+                        for index in range(world.config.model.layers))
+        cache.layer_layouts[config_token] = layouts
+    layer_input = layouts[layer] if 0 <= layer < len(layouts) else None
+    key = _stage_cache_key(world, requests, at_us, offset, layer, config_token,
+                           request_inputs, layer_input)
+    result = cache.get("stage", key)
+    if result is None:
+        result = _compute_stage_cost(world, requests, at_us, offset, layer=layer)
+        cache.put("stage", key, result)
+    return result
+
+
+def _compute_stage_cost(world: LayoutWorld, requests: list[LayoutRequest],
+                        at_us: float, offset: int = 0, *, layer: int | None = None) -> StageCost:
+    if not requests:
+        return _EMPTY_STAGE_COST
     if layer is None:
         # A request cannot start the next layer before the current layer has
         # produced its output.  Ranksets overlap only *within* a layer call.
@@ -968,6 +1195,7 @@ def _stage_cost(world: LayoutWorld, requests: list[LayoutRequest],
 
 
 def _prune_link(calendar: LinkCalendar, now: float) -> None:
+    calendar._pruned_through_us = max(calendar._pruned_through_us, now)
     retained = []
     for event in calendar.events:
         if event.end_us <= now:
@@ -976,22 +1204,36 @@ def _prune_link(calendar: LinkCalendar, now: float) -> None:
                 job = calendar.jobs[event.job_id]
                 job.completed_bytes += event.bytes
                 job.completed_end_us = max(job.completed_end_us, event.end_us)
+                if job.completed_bytes == job.size:
+                    job.ready_us = job.completed_end_us + job.conversion_us
+                    if calendar._pending_jobs is not None:
+                        calendar._pending_jobs.pop(job.job_id, None)
         else:
             retained.append(event)
     calendar.events = retained
 
 
+def _pending_preparations(calendar: LinkCalendar) -> dict[int, PreparationJob]:
+    if calendar._pending_jobs is None or calendar._known_jobs != len(calendar.jobs):
+        calendar._pending_jobs = {
+            key: job for key, job in calendar.jobs.items()
+            if job.completed_bytes != job.size}
+        calendar._known_jobs = len(calendar.jobs)
+    return calendar._pending_jobs
+
+
 def _reserve_link(calendar: LinkCalendar, full_duplex: bool, direction: str,
                   duration_us: float, earliest_us: float, kind: str,
-                  job_id: int | None = None, size: int = 0) -> tuple[float, float]:
+                  job_id: int | None = None, size: int = 0, *,
+                  measure_wait: bool = True) -> tuple[float, float]:
     """Place a packet in the first gap on its physical link timeline."""
     if duration_us <= 0:
         return earliest_us, 0.0
     start = earliest_us
     # The common half-duplex preparation stream appends packets in time
     # order. Avoid sorting the entire calendar for every 4 MiB packet.
-    if (calendar.events and not full_duplex
-            and calendar.events[-1].end_us <= earliest_us):
+    if (not calendar.events or (not full_duplex
+                               and calendar.events[-1].end_us <= earliest_us)):
         calendar.events.append(LinkEvent(start, start + duration_us, direction,
                                          kind, job_id, size))
         return start, 0.0
@@ -1003,9 +1245,9 @@ def _reserve_link(calendar: LinkCalendar, full_duplex: bool, direction: str,
         if event.start_us >= start + duration_us:
             break
         start = event.end_us
-    wait = sum(max(0.0, min(start, event.end_us) - max(earliest_us, event.start_us))
-               for event in calendar.events if event.kind == "preparation"
-               and (not full_duplex or event.direction == direction))
+    wait = (sum(max(0.0, min(start, event.end_us) - max(earliest_us, event.start_us))
+                for event in calendar.events if event.kind == "preparation"
+                and (not full_duplex or event.direction == direction)) if measure_wait else 0.0)
     calendar.events.append(LinkEvent(start, start + duration_us, direction,
                                      kind, job_id, size))
     return start, wait
@@ -1017,32 +1259,41 @@ def _reflow_preparations(calendar: LinkCalendar, config: ProjectConfig,
     preserved = [event for event in calendar.events
                  if event.kind == "foreground" or event.start_us < cutoff_us]
     calendar.events = preserved
-    retained_by_job: dict[int, list[LinkEvent]] = defaultdict(list)
+    retained_bytes: dict[int, int] = {}
+    retained_end: dict[int, float] = {}
     for event in preserved:
         if event.kind == "preparation":
-            retained_by_job[event.job_id].append(event)
+            job_id = event.job_id
+            retained_bytes[job_id] = retained_bytes.get(job_id, 0) + event.bytes
+            previous = retained_end.get(job_id)
+            retained_end[job_id] = (event.end_us if previous is None else
+                                    max(previous, event.end_us))
     prior_end: dict[str, float] = defaultdict(lambda: cutoff_us)
-    for job in calendar.jobs.values():
-        lane = job.direction if config.system.link.full_duplex else "shared"
-        retained = retained_by_job[job.job_id]
-        sent = job.completed_bytes + sum(event.bytes for event in retained)
-        last_end = max((event.end_us for event in retained),
-                       default=job.completed_end_us)
+    full_duplex = config.system.link.full_duplex
+    ga_bandwidth = config.system.link.host_to_pim_bytes_s
+    ag_bandwidth = config.system.link.pim_to_host_bytes_s
+    launch = config.system.link.transfer_latency_us * config.simulation.layout_launch_scale
+    # Completed jobs remain available for copy readiness and statistics, but
+    # cannot delay packets starting at or after the pruning time. Preserve
+    # the original all-job traversal for an explicitly retrospective query.
+    jobs = (calendar.jobs if cutoff_us < calendar._pruned_through_us
+            else _pending_preparations(calendar))
+    for job in jobs.values():
+        lane = job.direction if full_duplex else "shared"
+        sent = job.completed_bytes + retained_bytes.get(job.job_id, 0)
+        last_end = retained_end.get(job.job_id, job.completed_end_us)
         if sent == job.size:
             job.ready_us = last_end + job.conversion_us
             prior_end[lane] = max(prior_end[lane], last_end)
             continue
         earliest = max(cutoff_us, job.earliest_us, prior_end[lane], last_end)
         size = job.size - sent
-        bandwidth = (config.system.link.host_to_pim_bytes_s
-                     if job.direction == "ga" else
-                     config.system.link.pim_to_host_bytes_s)
-        startup = (config.system.link.transfer_latency_us
-                   * config.simulation.layout_launch_scale if sent == 0 else 0.0)
+        bandwidth = ga_bandwidth if job.direction == "ga" else ag_bandwidth
+        startup = launch if sent == 0 else 0.0
         duration = startup + _us(size / bandwidth)
-        start, _ = _reserve_link(calendar, config.system.link.full_duplex,
+        start, _ = _reserve_link(calendar, full_duplex,
                                  job.direction, duration, earliest,
-                                 "preparation", job.job_id, size)
+                                 "preparation", job.job_id, size, measure_wait=False)
         calendar.events[-1].startup_us = startup
         earliest = start + duration
         job.ready_us = earliest + job.conversion_us
@@ -1052,6 +1303,9 @@ def _reflow_preparations(calendar: LinkCalendar, config: ProjectConfig,
 def _append_preparation(calendar: LinkCalendar, config: ProjectConfig,
                         job: PreparationJob) -> None:
     """Append a newly queued job without rebuilding earlier reservations."""
+    if calendar._pending_jobs is not None:
+        calendar._pending_jobs[job.job_id] = job
+        calendar._known_jobs = len(calendar.jobs)
     full_duplex = config.system.link.full_duplex
     previous = max((event.end_us for event in calendar.events
                     if event.kind == "preparation"
@@ -1066,7 +1320,7 @@ def _append_preparation(calendar: LinkCalendar, config: ProjectConfig,
     duration = startup + _us(job.size / bandwidth)
     start, _ = _reserve_link(calendar, full_duplex, job.direction,
                              duration, earliest, "preparation", job.job_id,
-                             job.size)
+                             job.size, measure_wait=False)
     calendar.events[-1].startup_us = startup
     earliest = start + duration
     job.ready_us = earliest + job.conversion_us
@@ -1122,6 +1376,33 @@ def _book_boundary(calendar: LinkCalendar, config: ProjectConfig,
                    ) -> tuple[float, float, float]:
     finish = start_us
     busy = wait = 0.0
+    if (not _pending_preparations(calendar)
+            and start_us >= calendar._pruned_through_us):
+        # No background stream exists, so neither preemption nor rebuilding
+        # its queue can change anything. Preserve the same packet reservations.
+        if (not calendar.events or (not config.system.link.full_duplex
+                                   and calendar.events[-1].end_us <= start_us)):
+            if ga_us > 0:
+                calendar.events.append(LinkEvent(start_us, start_us + ga_us, "ga", "foreground"))
+                finish = max(finish, start_us + ga_us)
+                busy += ga_us
+            if ag_us > 0:
+                earliest = start_us if config.system.link.full_duplex else finish
+                calendar.events.append(LinkEvent(earliest, earliest + ag_us, "ag", "foreground"))
+                finish = max(finish, earliest + ag_us)
+                busy += ag_us
+            return finish, busy, wait
+        for direction, duration in (("ga", ga_us), ("ag", ag_us)):
+            if duration <= 0:
+                continue
+            earliest = start_us if config.system.link.full_duplex else finish
+            packet_start, packet_wait = _reserve_link(
+                calendar, config.system.link.full_duplex, direction, duration,
+                earliest, "foreground")
+            finish = max(finish, packet_start + duration)
+            busy += duration
+            wait += packet_wait
+        return finish, busy, wait
     # The stage model knows direction-level aggregate payloads, not the
     # individual operator packet release times. GA then AG is a fixed tie-break.
     for direction, duration in (("ga", ga_us), ("ag", ag_us)):
@@ -1138,13 +1419,19 @@ def _book_boundary(calendar: LinkCalendar, config: ProjectConfig,
         finish = max(finish, packet_start + duration)
         busy += duration
         wait += packet_wait
-        _reflow_preparations(calendar, config, cutoff)
+        # On a shared lane AG arrives exactly when GA finishes. Any unsent
+        # preparation rebuilt here would be discarded again before AG. Keep
+        # the active packet, and rebuild once after both foreground packets.
+        if not (direction == "ga" and ag_us > 0 and not config.system.link.full_duplex):
+            _reflow_preparations(calendar, config, cutoff)
     return finish, busy, wait
 
 
 def evaluate_step(world: LayoutWorld, at_us: float | None = None,
                   offset: int = 0, *, book_link: bool = False) -> StepCost:
     now = world.clock_us if at_us is None else at_us
+    calendar = world.link_calendar if book_link else deepcopy(world.link_calendar)
+    _prune_link(calendar, now)
     subbatch0, subbatch1 = _subbatches(world)
     stage0 = stage1 = boundary = 0.0
     gpu_busy = pim_busy = dense = flops = merge = pim_scan = gpu_scan = 0.0
@@ -1155,14 +1442,18 @@ def evaluate_step(world: LayoutWorld, at_us: float | None = None,
     stage1_gpu_critical = stage1_pim_critical = 0.0
     stage0_gpu_layers = stage0_pim_layers = stage1_gpu_layers = stage1_pim_layers = 0
     link_busy = foreground_wait = 0.0
-    calendar = world.link_calendar if book_link else deepcopy(world.link_calendar)
-    _prune_link(calendar, now)
     elapsed = 0.0
+    cache = current_cost_cache()
+    config_token = cache.config_token(world.config) if cache is not None else None
+    inputs0 = _stage_request_inputs(world, subbatch0, now, offset) if cache is not None else None
+    inputs1 = _stage_request_inputs(world, subbatch1, now, offset) if cache is not None else None
     # Equation (2) sums the dependent layer cycles.  Equation (8)'s group
     # maximum has already been applied inside each individual layer call.
     for layer in range(world.config.model.layers):
-        first = _stage_cost(world, subbatch0, now, offset, layer=layer)
-        second = _stage_cost(world, subbatch1, now, offset, layer=layer)
+        first = _stage_cost(world, subbatch0, now, offset, layer=layer,
+                            request_inputs=inputs0, config_token=config_token)
+        second = _stage_cost(world, subbatch1, now, offset, layer=layer,
+                             request_inputs=inputs1, config_token=config_token)
         overlap = world.config.simulation.layout_boundary_overlap_fraction
         scale = world.config.simulation.layout_boundary_scale
         for phase, gpu_time, pim_time, ga, ag in (
@@ -1315,6 +1606,9 @@ def _prepare_interval(world: LayoutWorld, interval: PimInterval,
                 world.weights[key] = WeightCopy(replica, layer, operator,
                                                 groups, shard_bytes, ready,
                                                 preparation_job_id=job_id)
+                if world._capacity_totals is not None:
+                    for rankset, size in zip(groups, shard_bytes):
+                        world._capacity_totals.pim_weights[rankset] += size
     return transfer_us
 
 
@@ -1339,7 +1633,9 @@ def apply_action(world: LayoutWorld, action: LayoutAction,
         for request_id in action.request_ids:
             request = world.requests[request_id]
             if request.future_writer != action.target:
+                world._account_writer(request, -1)
                 request.future_writer = action.target
+                world._account_writer(request, 1)
                 request.switches += 1
     if action.kind in ("copy", "combined"):
         if action.target not in (GPU, PIM):
@@ -1398,7 +1694,9 @@ def finalize_preparations(world: LayoutWorld) -> None:
             block.owner = block.pending_owner
             block.pending_owner = None
             if old != block.owner:
-                block.copies.pop(old, None)
+                copy = block.copies.pop(old, None)
+                if copy is not None:
+                    world._account_copy(block, copy, -1)
     for request in world.requests.values():
         if request.pending_interval is not None and world.clock_us >= request.interval_ready_us:
             request.interval = request.pending_interval
@@ -1635,20 +1933,27 @@ def _forecast_total(world: LayoutWorld, horizon: int,
     """Replay one complete future path using real request and KV lifetimes."""
     total = 0.0
     emitted = {request_id: 0 for request_id in world.requests}
-    for _ in range(horizon):
-        if not world.requests:
-            break
-        active = tuple(world.requests.values())
-        cost = evaluate_step(world, book_link=True)
-        world.clock_us += cost.total_us
-        total += cost.total_us
-        finalize_preparations(world)
-        for request in active:
-            request_id = request.source.request_id
-            world.append_token(request)
-            emitted[request_id] += 1
-            if emitted[request_id] >= remaining[request_id]:
-                world.retire(request_id)
+    previous_totals = world._capacity_totals
+    world._start_capacity_accounting()
+    try:
+        for _ in range(horizon):
+            if not world.requests:
+                break
+            active = tuple(world.requests.values())
+            cost = evaluate_step(world, book_link=True)
+            world.clock_us += cost.total_us
+            total += cost.total_us
+            finalize_preparations(world)
+            for request in active:
+                request_id = request.source.request_id
+                world.append_token(request)
+                emitted[request_id] += 1
+                if emitted[request_id] >= remaining[request_id]:
+                    world.retire(request_id)
+    finally:
+        # Keep this detail out of real states and let callers edit public
+        # block objects after a forecast returns, including on failure.
+        world._capacity_totals = previous_totals
     return total
 
 
@@ -1719,7 +2024,9 @@ def _capacity_recovery_action(world: LayoutWorld) -> LayoutAction | None:
         if not choices:
             return None
         request_id = choices[0]
+        trial._account_writer(trial.requests[request_id], -1)
         trial.requests[request_id].future_writer = PIM
+        trial._account_writer(trial.requests[request_id], 1)
         moved.append(request_id)
     if not moved:
         return None
@@ -1727,8 +2034,20 @@ def _capacity_recovery_action(world: LayoutWorld) -> LayoutAction | None:
 
 
 def choose_action(world: LayoutWorld, *,
-                  screening: list[dict[str, Any]] | None = None
+                  screening: list[dict[str, Any]] | None = None,
+                  reuse_statistics: dict | None = None,
+                  forecast_mode: str = "bounded"
                   ) -> tuple[LayoutAction | None, float, float]:
+    with reuse_costs(reuse_statistics):
+        return _choose_action(world, screening=screening, forecast_mode=forecast_mode)
+
+
+def _choose_action(world: LayoutWorld, *,
+                   screening: list[dict[str, Any]] | None = None,
+                   forecast_mode: str = "bounded"
+                   ) -> tuple[LayoutAction | None, float, float]:
+    if forecast_mode not in ("reference", "shared", "bounded"):
+        raise ValueError("forecast_mode must be reference, shared or bounded")
     if not world.requests:
         return None, 0.0, 0.0
     baseline_step = evaluate_step(world).total_us
@@ -1758,8 +2077,17 @@ def choose_action(world: LayoutWorld, *,
         return recovery, 0.0, baseline_step
     scenarios = _forecast_scenarios(world, horizon)
     evaluated_steps = fmean(max(remaining.values()) for remaining in scenarios)
-    baseline = fmean(_forecast_total(deepcopy(world), horizon, remaining)
-                     for remaining in scenarios)
+    plan = None
+    cache = current_cost_cache()
+    statistics = cache.counts if cache is not None else None
+    if forecast_mode == "reference":
+        baseline = fmean(_forecast_total(deepcopy(world), horizon, remaining)
+                         for remaining in scenarios)
+    else:
+        plan = build_forecast_plan(world, horizon, scenarios)
+        if statistics is not None:
+            statistics['forecast_plan_builds'] += 1
+        baseline = evaluate_forecasts(deepcopy(world), plan, statistics=statistics).mean_us
     selected: list[LayoutAction] = []
     best_score = 0.0
     # Two greedy rounds suffice to expose copy+interval interaction while
@@ -1789,9 +2117,16 @@ def choose_action(world: LayoutWorld, *,
             bundle = LayoutAction("bundle", steps=(*selected, action))
             try:
                 apply_action(candidate, bundle, baseline_us=baseline_step)
-                first_step = evaluate_step(candidate).total_us
-                future = fmean(_forecast_total(deepcopy(candidate), horizon, remaining)
-                               for remaining in scenarios)
+                if forecast_mode == "reference":
+                    first_step = evaluate_step(candidate).total_us
+                    future = fmean(_forecast_total(deepcopy(candidate), horizon, remaining)
+                                   for remaining in scenarios)
+                else:
+                    result = evaluate_forecasts(candidate, plan,
+                        baseline_us=baseline if forecast_mode == "bounded" else None,
+                        incumbent_gain_us=improvement_score, tie_margin_us=tie_margin,
+                        statistics=statistics)
+                    first_step, future = result.first_step_us, result.mean_us
                 if not _respects_service_guard(world, baseline, future, horizon,
                                                baseline_step, first_step,
                                                evaluated_steps):
@@ -1800,6 +2135,11 @@ def choose_action(world: LayoutWorld, *,
                                      "status": "service_guard"})
                     continue
                 score = baseline - future
+            except ForecastPruned as exc:
+                outcomes.append({"kind": action.kind,
+                                 "request_ids": list(action.request_ids),
+                                 "status": "bound_pruned", **exc.proof})
+                continue
             except (MemoryError, ValueError, KeyError) as exc:
                 outcomes.append({"kind": action.kind,
                                  "request_ids": list(action.request_ids),

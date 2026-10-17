@@ -24,6 +24,14 @@ or recreate deleted legacy results.
 
 Supporting documents:
 
+- [docs/搜索耗时第四阶段.md](docs/搜索耗时第四阶段.md): shared lifetime plans,
+  exact common-prefix replay, bounded rejection, and full-score validation.
+- [docs/搜索耗时第三阶段.md](docs/搜索耗时第三阶段.md): cheaper link scheduling
+  and input checks, exact comparisons, and larger burst-pressure diagnostics.
+- [docs/搜索耗时第二阶段.md](docs/搜索耗时第二阶段.md): exact cost reuse,
+  three paired online windows, timing limits, and current search bottlenecks.
+- [docs/搜索耗时第一阶段.md](docs/搜索耗时第一阶段.md): search timing,
+  implementation speedups, and exact decision/output comparisons on two online windows.
 - [PARAMETER_PROVENANCE.md](PARAMETER_PROVENANCE.md): hardware and calibration
   provenance.
 - [ATTENTION_FULL_EVENT_REPLAN_REPORT.md](ATTENTION_FULL_EVENT_REPLAN_REPORT.md):
@@ -98,7 +106,8 @@ python3 -m unittest discover -s tests -q
 
 The cleanup baseline on 2026-09-22 was 131 passing tests. Before the
 layout-aware addition, the full suite passed 168 tests; the current suite
-passed 201 tests on 2026-10-12. Source files are tracked in the GitHub
+passed 201 tests on 2026-10-12. The search implementation suite passed 267
+tests on 2026-10-17. Source files are tracked in the GitHub
 repository `Asprin2002/AFD`; generated `results/` remain ignored by Git.
 Result metadata hashes and explicit checkpoints identify experiment outputs.
 
